@@ -3,10 +3,11 @@ import WebKit
 
 // Ballast: a native window around the Ballast web app.
 // The app needs its small local server (server.js), which fetches market data and keeps the Alpaca keys
-// in .env on this Mac, so the window starts `node server.js` from the project folder named in Info.plist
-// (BallastSourceFolder) and shows it. The server also runs the paper-trading autopilot while the app is open;
+// on this Mac, so the window starts `node server.js` and shows it. A copy built from source runs the
+// project folder named in Info.plist (BallastSourceFolder); the packaged copy (the DMG) carries the code
+// and Node.js in Resources and keeps keys and autopilot data in ~/Library/Application Support/Ballast. The server also runs the paper-trading autopilot while the app is open;
 // closing the window only hides it, and Quit stops the server.
-// It pulls the latest version of main from GitHub when opened and every 15 minutes: page changes reload the
+// Built from source, it pulls the latest version of main from GitHub when opened and every 15 minutes: page changes reload the
 // window, server changes restart the server, and changes to the Mac app itself rebuild and reopen it.
 
 let port = Int(ProcessInfo.processInfo.environment["BALLAST_PORT"] ?? "") ?? 5179
@@ -36,6 +37,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let path = Bundle.main.object(forInfoDictionaryKey: "BallastSourceFolder") as? String, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
     }()
+
+    /// The packaged app's own copy of Ballast, in Resources/app.
+    lazy var bundledCode: URL? = {
+        guard let app = Bundle.main.resourceURL?.appendingPathComponent("app"),
+              FileManager.default.fileExists(atPath: app.appendingPathComponent("server.js").path) else { return nil }
+        return app
+    }()
+
+    /// Where the server's code lives: the project folder when built from source, else the packaged copy.
+    var codeFolder: URL? {
+        if let folder = sourceFolder, FileManager.default.fileExists(atPath: folder.appendingPathComponent("server.js").path) { return folder }
+        return bundledCode
+    }
+
+    var isPackaged: Bool { codeFolder != nil && codeFolder == bundledCode }
+
+    /// Keys (.env) and autopilot data: the project folder when built from source, else Application Support.
+    var dataFolder: URL? {
+        if !isPackaged { return codeFolder }
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Ballast")
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        return support
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -100,6 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// Finds Node.js: the usual install locations, then a login shell (which knows nvm, fnm and similar).
     func findNode() -> String? {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("node").path,
+           FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
         for path in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
@@ -126,9 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func startServer() {
-        guard let folder = sourceFolder, FileManager.default.fileExists(atPath: folder.appendingPathComponent("server.js").path) else {
-            showMessage("Ballast's folder is missing",
-                        "Reinstall it by pasting this into Terminal:<br><code>curl -fsSL https://raw.githubusercontent.com/bollineni-create/ballast/main/app/macos/install.sh | zsh</code>")
+        guard let folder = codeFolder else {
+            showMessage("Ballast's files are missing", "Download Ballast again and drag it into Applications.")
             return
         }
         guard let node = findNode() else {
@@ -141,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             // A server left over from a crash would run old code on our port: stop it first.
             run("/usr/bin/pkill", ["-f", serverJS], in: nil)
-            if !FileManager.default.fileExists(atPath: folder.appendingPathComponent("node_modules").path) {
+            if !isPackaged, !FileManager.default.fileExists(atPath: folder.appendingPathComponent("node_modules").path) {
                 let npm = (node as NSString).deletingLastPathComponent + "/npm"
                 run(npm, ["install", "--no-audit", "--no-fund"], in: folder)
             }
@@ -152,8 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             p.executableURL = URL(fileURLWithPath: node)
             p.arguments = [serverJS]
             p.currentDirectoryURL = folder
-            p.environment = ProcessInfo.processInfo.environment.merging(
-                ["PATH": searchPath, "PORT": String(port), "HOST": "127.0.0.1"]) { $1 }
+            var env = ["PATH": searchPath, "PORT": String(port), "HOST": "127.0.0.1"]
+            if isPackaged, let data = dataFolder { env["BALLAST_HOME"] = data.path }
+            p.environment = ProcessInfo.processInfo.environment.merging(env) { $1 }
             p.standardOutput = log ?? FileHandle.nullDevice
             p.standardError = log ?? FileHandle.nullDevice
             p.terminationHandler = { [weak self] proc in
@@ -186,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard let self = self, self.server != nil else { return }
                 if (response as? HTTPURLResponse)?.statusCode == 200 {
                     self.webView.load(URLRequest(url: home))
+                    self.offerKeysOnce()
                 } else if attempts > 0 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.waitForServer(attempts: attempts - 1) }
                 } else {
@@ -212,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// Modification dates of the page files, so local edits and pulled changes show up without a restart.
     private func signature() -> String {
-        guard let folder = sourceFolder?.appendingPathComponent("public"),
+        guard let folder = codeFolder?.appendingPathComponent("public"),
               let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey])
         else { return "" }
         var parts: [String] = []
@@ -345,23 +372,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc func reloadPage(_ sender: Any?) { if server == nil { startServer() } else { webView.load(URLRequest(url: home)) } }
 
-    /// Opens the keys file (.env) in TextEdit, creating it from .env.example the first time.
-    @objc func editKeys(_ sender: Any?) {
-        guard let folder = sourceFolder else { return }
-        let env = folder.appendingPathComponent(".env")
-        if !FileManager.default.fileExists(atPath: env.path) {
-            try? FileManager.default.copyItem(at: folder.appendingPathComponent(".env.example"), to: env)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: env.path)
+    /// Reads KEY=value lines from the keys file.
+    func readKeys(_ url: URL) -> [String: String] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var out: [String: String] = [:]
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 { out[parts[0]] = parts[1] }
         }
-        run("/usr/bin/open", ["-e", env.path], in: nil)
+        return out
+    }
+
+    /// The first time the app runs without a keys file, offers the keys form once.
+    func offerKeysOnce() {
+        guard let folder = dataFolder, !FileManager.default.fileExists(atPath: folder.appendingPathComponent(".env").path),
+              !UserDefaults.standard.bool(forKey: "offeredKeys") else { return }
+        UserDefaults.standard.set(true, forKey: "offeredKeys")
+        editKeys(nil)
+    }
+
+    /// A small form for the optional keys. Saving writes them to .env on this Mac and restarts the server.
+    @objc func editKeys(_ sender: Any?) {
+        guard let folder = dataFolder, window.attachedSheet == nil else { return }
+        let envFile = folder.appendingPathComponent(".env")
+        var keys = readKeys(envFile)
+        let fields: [(name: String, label: String, secret: Bool)] = [
+            ("ALPACA_API_KEY_ID", "Alpaca paper API key ID", false),
+            ("ALPACA_API_SECRET_KEY", "Alpaca paper secret key", true),
+            ("ANTHROPIC_API_KEY", "Anthropic API key (Claude strategy builder)", true),
+        ]
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        var inputs: [String: NSTextField] = [:]
+        for f in fields {
+            stack.addArrangedSubview(NSTextField(labelWithString: f.label))
+            let input = f.secret ? NSSecureTextField() : NSTextField()
+            input.stringValue = keys[f.name] ?? ""
+            input.placeholderString = "Optional"
+            input.translatesAutoresizingMaskIntoConstraints = false
+            input.widthAnchor.constraint(equalToConstant: 380).isActive = true
+            stack.addArrangedSubview(input)
+            inputs[f.name] = input
+        }
+        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
+
         let alert = NSAlert()
-        alert.messageText = "After saving your keys, choose View → Restart Server so Ballast picks them up."
-        alert.beginSheetModal(for: window, completionHandler: nil)
+        alert.messageText = "Keys"
+        alert.informativeText = "All optional, and saved only on this Mac. Alpaca paper keys give official stock prices and turn on the paper autopilot: use a paper account nothing else trades in. Without them, stock prices come from Yahoo Finance."
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        window.makeKeyAndOrderFront(nil)
+        alert.beginSheetModal(for: window) { [self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            for f in fields { keys[f.name] = inputs[f.name]?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+            let text = "# Ballast keys. This file stays on this Mac.\n" + keys.keys.sorted().map { "\($0)=\(keys[$0] ?? "")" }.joined(separator: "\n") + "\n"
+            FileManager.default.createFile(atPath: envFile.path, contents: Data(text.utf8))
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envFile.path)
+            restartServer(nil)
+        }
     }
 
     @objc func showLog(_ sender: Any?) { NSWorkspace.shared.open(logURL) }
     @objc func revealProject(_ sender: Any?) {
-        if let folder = sourceFolder { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+        if let folder = dataFolder { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
     }
     @objc func openRepository(_ sender: Any?) {
         NSWorkspace.shared.open(URL(string: "https://github.com/bollineni-create/ballast")!)

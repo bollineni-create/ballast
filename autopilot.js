@@ -14,7 +14,7 @@ import { analyze, plan } from "./public/lib/rebalance.js";
 import { getQuotes, getHistory, cleanSymbol } from "./marketdata.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const dataDir = process.env.AUTOPILOT_DIR || path.join(here, "autopilot-data");
+export const dataDir = process.env.AUTOPILOT_DIR || path.join(process.env.BALLAST_HOME || here, "autopilot-data");
 const configPath = path.join(dataDir, "config.json");
 const journalPath = path.join(dataDir, "journal.jsonl");
 const lockPath = path.join(dataDir, ".lock");

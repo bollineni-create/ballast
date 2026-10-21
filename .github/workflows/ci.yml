@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,19 +10,34 @@ permissions:
 
 jobs:
   mac-app:
-    # Proves the Mac app compiles and the install scripts parse; the built copy is not published.
+    # Builds the self-contained Mac app and publishes Ballast.dmg as a run artifact
+    # (only people with access to this repository can download it).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check install scripts
+      - name: Check scripts
         run: zsh -n app/macos/install.sh && zsh -n app/macos/build.sh
-      - name: Build Ballast.app
-        run: zsh app/macos/build.sh --no-install
+      - name: Build Ballast.app and Ballast.dmg
+        run: zsh app/macos/build.sh --package
       - name: Check the bundle
         run: |
           plutil -lint build/Ballast.app/Contents/Info.plist
           lipo -archs build/Ballast.app/Contents/MacOS/Ballast
-          codesign --verify build/Ballast.app
+          lipo -archs build/Ballast.app/Contents/Resources/node
+          codesign --verify --deep build/Ballast.app
+      - name: Open the app and check its server answers
+        run: |
+          open -n build/Ballast.app
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:5179/api/status && break; sleep 1; done
+          curl -sf http://127.0.0.1:5179/ | grep -q "<title>Ballast</title>"
+          test -d "$HOME/Library/Application Support/Ballast"
+          cat "$HOME/Library/Logs/Ballast.log"
+          osascript -e 'quit app "Ballast"' || pkill -x Ballast || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ballast-mac
+          path: build/Ballast.dmg
+          retention-days: 90
 
   server:
     runs-on: ubuntu-latest

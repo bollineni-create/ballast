@@ -3,49 +3,41 @@
 <h1 align="center">Ballast</h1>
 
 <p align="center"><b>Keep your portfolio steady. Backtest strategies on real price history, get rebalancing advice, and rehearse on an Alpaca paper account.</b><br>
-Ballast runs as a Mac app, or as a website with a few features switched off.</p>
-
-<p align="center"><b><a href="https://bollineni-create.github.io/ballast/">Open the Ballast website</a></b></p>
+A Mac app. Private: only people with access to this repository can see or download it.</p>
 
 Describe a trading idea in plain English, read and edit the code it produces, and backtest it on every daily bar the market has. The Rebalance tab tells you which trades bring your holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money), so you can see how a strategy behaves before risking anything.
 
-## Install it on a Mac (simplest)
+## Install it on a Mac
 
-You need [Node.js](https://nodejs.org) 20.12 or newer (the LTS download is fine). Then paste this into Terminal:
+Nothing else to install: the app carries everything it needs.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/bollineni-create/ballast/main/app/macos/install.sh | zsh
-```
+1. Sign in to GitHub, open this repository's **Actions** tab, and click the latest **CI** run with a green check.
+2. Under **Artifacts**, click **Ballast-mac**. Open the downloaded zip, then `Ballast.dmg`, and drag **Ballast** into **Applications**.
+3. Open Ballast. The first time, macOS says it can't check the app because it isn't from the App Store: open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Ballast. (On macOS 14 and earlier, right-click the app and choose **Open** instead.) You only do this once.
+4. Ballast asks for its optional keys. Fill in any you have, or click **Cancel** and add them later from **Ballast → Edit Keys…**:
+   - **Alpaca paper keys** switch stock prices to Alpaca's official feed and turn on the paper autopilot. Use a paper account that nothing else is trading in.
+   - **Anthropic key** turns on the Claude strategy builder.
 
-It downloads Ballast to `~/ballast`, builds a small native app, puts it in Applications and opens it. It offers to install Apple's command-line tools first if you don't have them. Running the same line again updates and reinstalls.
+Keys, the autopilot's settings and its log are kept in `~/Library/Application Support/Ballast` on your Mac, never in the app or this repository. **Help → Show Ballast Folder** opens it.
 
-The first time, it asks for optional keys. Press Enter to skip any of them:
-
-- **Alpaca paper keys** switch stock prices to Alpaca's official feed and turn on the paper autopilot. Use a paper account that nothing else is trading in.
-- **Anthropic key** turns on the Claude strategy builder.
-
-They're saved in `~/ballast/.env`, which git ignores, so they never get uploaded. To change them later, choose **Ballast → Edit Keys…** in the app, save, then **View → Restart Server**.
-
-After that, open Ballast from Launchpad, Spotlight or the Dock like any other app. It keeps itself up to date: each time you open or switch to it, and every 15 minutes while it's open, it pulls the latest `main` from GitHub into `~/ballast`. Page changes show up in the window right away, server changes restart the server, and if the Mac app itself changed, Ballast rebuilds, reinstalls and reopens itself.
+**Updating:** every change pushed to `main` builds a new `Ballast.dmg` the same way. Download it and drag it into Applications again to replace the old copy; your keys and data stay where they are.
 
 Closing the window hides it and keeps the autopilot running; **Quit** (Cmd-Q) stops it. The server's log is under **Help → Open Server Log**.
 
-## The website
+## Run it from source
 
-The [website](https://bollineni-create.github.io/ballast/) is the same app without its server, so it can't hold keys:
-
-- Backtests, the strategy builder's templates, CSV import and the rebalancer work fully.
-- Live prices and history cover crypto pairs (`BTC-USD`, `ETH-USD`, …) straight from Coinbase. Stock symbols use simulated data there; get the Mac app or import a CSV for real stock history.
-- The Claude builder and the Alpaca autopilot need the Mac app.
-
-## Run it from source (any OS)
+For working on Ballast itself. Needs [Node.js](https://nodejs.org) 20.12 or newer.
 
 ```bash
 npm install
 npm start
 ```
 
-Then open http://127.0.0.1:5173. Set `PORT` to use a different port. Opening `public/index.html` some other way gives you the website version.
+Then open http://127.0.0.1:5173. Set `PORT` to use a different port. Keys go in `.env` in this folder (copy `.env.example`; git ignores `.env`).
+
+To get a Mac app that runs from your clone and updates itself from `main` (it uses your Git sign-in to pull), run `./app/macos/install.sh` from the clone, or `./app/macos/build.sh` to rebuild it after changing `app/macos`.
+
+Opened without its server (for example `public/index.html` straight from disk), the page still works with fewer features: live data covers only crypto pairs from Coinbase, stock symbols use simulated data, and the Claude builder and autopilot are off.
 
 ### Market data
 
@@ -101,7 +93,7 @@ The autopilot runs the Rebalance tab's logic automatically on an **Alpaca paper-
 
 1. Create a free account at [alpaca.markets](https://alpaca.markets) and open the **Paper Trading** dashboard. If you like, reset the paper balance to the amount you'd actually invest, so the numbers feel real.
 2. Generate **paper** API keys.
-3. Add them to Ballast: **Ballast → Edit Keys…** in the Mac app (then **View → Restart Server**), or copy `.env.example` to `.env` in this folder. `.env` is git-ignored.
+3. Add them in the Mac app with **Ballast → Edit Keys…** (or, running from source, in `.env`).
 4. Open the **Rebalance** tab, set your targets and rules, then click **Use targets & rules above** in the autopilot panel.
 5. Click **Turn on**. To start straight away instead of at tomorrow's check, click **Run check now** during market hours. The first check invests the paper cash at your targets and marks the start of the test.
 
@@ -109,13 +101,13 @@ The autopilot runs the Rebalance tab's logic automatically on an **Alpaca paper-
 
 - **Once per market day**, after the check time (10:30 ET by default), it compares the paper account with your targets. It trades only if a holding is outside the band, or if you hold something that isn't in your targets. Sells go first, then buys; ETFs that allow it are bought in fractional dollar amounts.
 - **Safety checks.** Before trading, it confirms the market is open and that there are no pending orders. It skips the day if its price quote differs from Alpaca's by more than 10%, and refuses any single order over 75% of equity. After three errors in a day, it stops until the next day.
-- **Logging.** Every check, order, fill and error goes to `autopilot-data/journal.jsonl` and the panel's decision log.
+- **Logging.** Every check, order, fill and error goes to `autopilot-data/journal.jsonl` (in the Mac app, inside the Ballast folder) and the panel's decision log.
 
 It has to be running to do its job. Either:
 
 - leave the Ballast app (or `npm start`) running; the server checks every 5 minutes, or
 - schedule `npm run autopilot -- once` every 15 minutes on weekdays. It does nothing unless a check is due, so running it often is harmless.
-  - **macOS / Linux** (`crontab -e`): `*/15 * * * 1-5 cd ~/ballast && npm run autopilot -- once >> autopilot-data/cron.log 2>&1`
+  - **macOS / Linux** (`crontab -e`): `*/15 * * * 1-5 cd /path/to/ballast && npm run autopilot -- once >> autopilot-data/cron.log 2>&1`
   - **Windows**: in Task Scheduler, create a task that repeats every 15 minutes and runs `node autopilot-cli.js once` with "Start in" set to this folder.
 
 If the computer is asleep at check time, that day's check runs when it wakes, provided the market is still open. Fully missed days are counted in the report.

@@ -1,7 +1,9 @@
 #!/bin/zsh
-# Downloads (or updates) Ballast into ~/ballast, builds the Mac app, installs it into /Applications and opens it.
+# Clones (or updates) Ballast into ~/ballast, builds a Mac app that runs from that folder and updates itself
+# from main, installs it into /Applications and opens it. The repository is private, so git needs to be
+# signed in to GitHub. Most people should use the packaged Ballast.dmg instead (see README).
 #
-#   curl -fsSL https://raw.githubusercontent.com/bollineni-create/ballast/main/app/macos/install.sh | zsh
+#   ./app/macos/install.sh
 #
 # Optional: put ALPACA_API_KEY_ID=... ALPACA_API_SECRET_KEY=... ANTHROPIC_API_KEY=... before `zsh` to save
 # those keys on a first install. They're kept only in ~/ballast/.env on this Mac, which git never uploads.

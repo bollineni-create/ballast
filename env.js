@@ -1,10 +1,13 @@
 // Loads .env (KEY=value lines) before other modules read process.env.
 // Import this first. Variables already set in the environment take precedence.
+// BALLAST_HOME moves .env and autopilot-data out of the code folder; the packaged
+// Mac app sets it to ~/Library/Application Support/Ballast.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const file = path.join(path.dirname(fileURLToPath(import.meta.url)), ".env");
+export const home = process.env.BALLAST_HOME || path.dirname(fileURLToPath(import.meta.url));
+const file = path.join(home, ".env");
 if (fs.existsSync(file)) process.loadEnvFile(file);
 
 // A test folder can name its own paper account with "alpacaKeyPrefix" in its
