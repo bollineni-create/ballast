@@ -49,6 +49,8 @@ if [[ "$MODE" == "--package" ]]; then
   lipo -create -output "$RES/node" "$TMP/node-v$NODE_VERSION-darwin-arm64/bin/node" "$TMP/node-v$NODE_VERSION-darwin-x64/bin/node"
   rm -rf "$TMP"
   codesign --force --sign - "$RES/node"
+  # The commit this build came from, so the app can tell when a newer build exists
+  /usr/libexec/PlistBuddy -c "Add :BallastBuildSHA string $(git -C "$ROOT" rev-parse HEAD)" "$APP/Contents/Info.plist"
 else
   /usr/libexec/PlistBuddy -c "Add :BallastSourceFolder string $ROOT" "$APP/Contents/Info.plist"
 fi

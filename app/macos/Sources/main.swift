@@ -7,7 +7,9 @@ import WebKit
 // project folder named in Info.plist (BallastSourceFolder); the packaged copy (the DMG) carries the code
 // and Node.js in Resources and keeps keys and autopilot data in ~/Library/Application Support/Ballast. The server also runs the paper-trading autopilot while the app is open;
 // closing the window only hides it, and Quit stops the server.
-// Built from source, it pulls the latest version of main from GitHub when opened and every 15 minutes: page changes reload the
+// The packaged app updates itself from the newest successful CI build of main, using a read-only GitHub
+// token saved in the keys form (the repository is private). Built from source, it instead pulls main
+// with git when opened and every 15 minutes: page changes reload the
 // window, server changes restart the server, and changes to the Mac app itself rebuild and reopen it.
 
 let port = Int(ProcessInfo.processInfo.environment["BALLAST_PORT"] ?? "") ?? 5179
@@ -94,8 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         startServer()
         pageSignature = signature()
         Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.checkPageChanges() }
-        Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in self?.pullUpdates() }
+        Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
+            self?.pullUpdates()
+            self?.checkForAppUpdate()
+        }
         pullUpdates()
+        checkForAppUpdate()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -286,7 +292,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) { pullUpdates() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        pullUpdates()
+        checkForAppUpdate()
+    }
+
+    // MARK: Self-update (packaged app)
+
+    let repoAPI = "https://api.github.com/repos/bollineni-create/ballast"
+    var lastUpdateCheck = Date.distantPast
+    var updating = false
+
+    var buildSHA: String { Bundle.main.object(forInfoDictionaryKey: "BallastBuildSHA") as? String ?? "" }
+
+    func updateToken() -> String? {
+        guard let folder = dataFolder, let token = readKeys(folder.appendingPathComponent(".env"))["BALLAST_UPDATE_TOKEN"],
+              !token.isEmpty else { return nil }
+        return token
+    }
+
+    /// Runs curl against GitHub with the token in a header file, so it never shows in the process list.
+    /// Returns what curl printed, or nil if the request failed.
+    func github(_ args: [String], token: String) -> Data? {
+        let header = FileManager.default.temporaryDirectory.appendingPathComponent("ballast-auth-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: header.path, contents: Data("Authorization: Bearer \(token)\n".utf8),
+                                       attributes: [.posixPermissions: 0o600])
+        defer { try? FileManager.default.removeItem(at: header) }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        // curl drops the Authorization header when a download redirects to another host.
+        p.arguments = ["-fsSL", "--max-time", "900", "-H", "@\(header.path)", "-H", "Accept: application/vnd.github+json"] + args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? data : nil
+    }
+
+    enum UpdateResult { case current, ready(URL), failed(String) }
+
+    /// Checks hourly (or now, from the menu) for a newer build, downloads it and swaps it in.
+    func checkForAppUpdate(manual: Bool = false) {
+        guard isPackaged, !updating, manual || Date().timeIntervalSince(lastUpdateCheck) > 3600 else { return }
+        lastUpdateCheck = Date()
+        guard let token = updateToken() else {
+            if manual { tell("Automatic updates are off", "Add a GitHub update token in Ballast → Edit Keys… to turn them on. The README explains how to make one.") }
+            return
+        }
+        let appPath = Bundle.main.bundleURL.path
+        guard !appPath.contains("/AppTranslocation/"), FileManager.default.isWritableFile(atPath: (appPath as NSString).deletingLastPathComponent) else {
+            if manual { tell("Move Ballast into Applications first", "Ballast can only update itself from the Applications folder.") }
+            return
+        }
+        updating = true
+        DispatchQueue.global(qos: .utility).async { [self] in
+            let result = downloadUpdate(token: token)
+            DispatchQueue.main.async {
+                self.updating = false
+                switch result {
+                case .ready(let app): self.installUpdate(app)
+                case .current: if manual { self.tell("Ballast is up to date", "") }
+                case .failed(let why): if manual { self.tell("Couldn't update Ballast", why) }
+                }
+            }
+        }
+    }
+
+    func downloadUpdate(token: String) -> UpdateResult {
+        guard let data = github(["\(repoAPI)/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1"], token: token),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let latest = (json["workflow_runs"] as? [[String: Any]])?.first,
+              let sha = latest["head_sha"] as? String, let runID = latest["id"] as? Int
+        else { return .failed("GitHub didn't accept the update token. Check that it hasn't expired and can read this repository's Actions.") }
+        if sha == buildSHA { return .current }
+        guard let listData = github(["\(repoAPI)/actions/runs/\(runID)/artifacts"], token: token),
+              let list = try? JSONSerialization.jsonObject(with: listData) as? [String: Any],
+              let artifact = (list["artifacts"] as? [[String: Any]])?.first(where: { $0["name"] as? String == "Ballast-mac" && $0["expired"] as? Bool != true }),
+              let zipURL = artifact["archive_download_url"] as? String
+        else { return .failed("The newest build has no app to download.") }
+
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("ballast-update-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let zip = work.appendingPathComponent("Ballast-mac.zip"), mount = work.appendingPathComponent("mnt")
+        let newApp = work.appendingPathComponent("Ballast.app")
+        guard github(["-o", zip.path, zipURL], token: token) != nil,
+              run("/usr/bin/ditto", ["-x", "-k", zip.path, work.path], in: nil) != nil,
+              run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-mountpoint", mount.path,
+                                      work.appendingPathComponent("Ballast.dmg").path], in: nil) != nil
+        else { return .failed("Downloading the new version failed.") }
+        let copied = run("/usr/bin/ditto", [mount.appendingPathComponent("Ballast.app").path, newApp.path], in: nil) != nil
+        run("/usr/bin/hdiutil", ["detach", mount.path, "-force"], in: nil)
+        guard copied, run("/usr/bin/codesign", ["--verify", "--deep", newApp.path], in: nil) != nil
+        else { return .failed("The downloaded app didn't pass its signature check.") }
+        return .ready(newApp)
+    }
+
+    /// Swaps in the new app once this one has quit, then reopens it. Waits while the autopilot is mid-check.
+    func installUpdate(_ newApp: URL) {
+        if let lock = dataFolder?.appendingPathComponent("autopilot-data/.lock"),
+           let modified = (try? FileManager.default.attributesOfItem(atPath: lock.path))?[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) < 15 * 60 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { self.installUpdate(newApp) }
+            return
+        }
+        let script = """
+        while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.5; done
+        rm -rf "$1.old"
+        if mv "$1" "$1.old" && mv "$2" "$1"; then rm -rf "$1.old"; elif [ -d "$1.old" ] && [ ! -d "$1" ]; then mv "$1.old" "$1"; fi
+        open "$1"
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-c", script, "ballast-update", Bundle.main.bundleURL.path, newApp.path]
+        guard (try? p.run()) != nil else { return }
+        NSApp.terminate(nil)
+    }
+
+    @objc func checkForUpdatesNow(_ sender: Any?) {
+        if isPackaged { checkForAppUpdate(manual: true) } else { lastPull = .distantPast; pullUpdates() }
+    }
+
+    func tell(_ title: String, _ detail: String) {
+        guard window.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.beginSheetModal(for: window, completionHandler: nil)
+    }
 
     // MARK: Window
 
@@ -400,6 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             ("ALPACA_API_KEY_ID", "Alpaca paper API key ID", false),
             ("ALPACA_API_SECRET_KEY", "Alpaca paper secret key", true),
             ("ANTHROPIC_API_KEY", "Anthropic API key (Claude strategy builder)", true),
+            ("BALLAST_UPDATE_TOKEN", "GitHub update token (turns on automatic updates)", true),
         ]
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -420,7 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
         let alert = NSAlert()
         alert.messageText = "Keys"
-        alert.informativeText = "All optional, and saved only on this Mac. Alpaca paper keys give official stock prices and turn on the paper autopilot: use a paper account nothing else trades in. Without them, stock prices come from Yahoo Finance."
+        alert.informativeText = "All optional, and saved only on this Mac. Alpaca paper keys give official stock prices and turn on the paper autopilot: use a paper account nothing else trades in. Without them, stock prices come from Yahoo Finance. The GitHub update token lets Ballast download its own updates from the private repository."
         alert.accessoryView = stack
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
@@ -432,6 +567,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             FileManager.default.createFile(atPath: envFile.path, contents: Data(text.utf8))
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envFile.path)
             restartServer(nil)
+            if isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.checkForAppUpdate(manual: true) }
+            }
         }
     }
 
@@ -450,6 +588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Ballast", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdatesNow(_:)), keyEquivalent: "")
         appMenu.addItem(withTitle: "Edit Keys…", action: #selector(editKeys(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Ballast", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

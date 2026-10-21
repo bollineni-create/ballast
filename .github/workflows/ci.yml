@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # the self-update check reads earlier builds
 
 jobs:
   mac-app:
@@ -33,6 +34,29 @@ jobs:
           test -d "$HOME/Library/Application Support/Ballast"
           cat "$HOME/Library/Logs/Ballast.log"
           osascript -e 'quit app "Ballast"' || pkill -x Ballast || true
+          sleep 3
+      - name: Check self-update (it should replace itself with the newest earlier build)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=$(curl -fsSL -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs']; print(r[0]['head_sha'] if r else '')")
+          if [ -z "$latest" ] || [ "$latest" = "$GITHUB_SHA" ]; then echo "No other build to update to; skipping"; exit 0; fi
+          ditto build/Ballast.app /Applications/Ballast.app
+          D="$HOME/Library/Application Support/Ballast"
+          mkdir -p "$D"
+          printf 'BALLAST_UPDATE_TOKEN=%s\n' "$TOKEN" > "$D/.env"
+          chmod 600 "$D/.env"
+          open /Applications/Ballast.app
+          sha() { /usr/libexec/PlistBuddy -c "Print :BallastBuildSHA" /Applications/Ballast.app/Contents/Info.plist 2>/dev/null || echo none; }
+          for i in $(seq 1 150); do [ -d /Applications/Ballast.app ] && [ "$(sha)" != "$GITHUB_SHA" ] && break; sleep 2; done
+          echo "Installed build: $(sha) (expected $latest, or none for builds before self-update)"
+          [ "$(sha)" = "$latest" ] || [ "$(sha)" = none ]
+          codesign --verify --deep /Applications/Ballast.app
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:5179/api/status && break; sleep 1; done
+          curl -sf http://127.0.0.1:5179/api/status
+          osascript -e 'quit app "Ballast"' || true
+          rm -f "$D/.env"
       - uses: actions/upload-artifact@v4
         with:
           name: Ballast-mac

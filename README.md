@@ -3,7 +3,7 @@
 <h1 align="center">Ballast</h1>
 
 <p align="center"><b>Keep your portfolio steady. Backtest strategies on real price history, get rebalancing advice, and rehearse on an Alpaca paper account.</b><br>
-A Mac app. Private: only people with access to this repository can see or download it.</p>
+A Mac app that keeps itself up to date. Private: only people with access to this repository can see or download it.</p>
 
 Describe a trading idea in plain English, read and edit the code it produces, and backtest it on every daily bar the market has. The Rebalance tab tells you which trades bring your holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money), so you can see how a strategy behaves before risking anything.
 
@@ -20,7 +20,18 @@ Nothing else to install: the app carries everything it needs.
 
 Keys, the autopilot's settings and its log are kept in `~/Library/Application Support/Ballast` on your Mac, never in the app or this repository. **Help → Show Ballast Folder** opens it.
 
-**Updating:** every change pushed to `main` builds a new `Ballast.dmg` the same way. Download it and drag it into Applications again to replace the old copy; your keys and data stay where they are.
+### Automatic updates (one-time setup)
+
+Ballast updates itself, like any other app, once it has a read-only key for this private repository:
+
+1. On GitHub, open **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token** ([direct link](https://github.com/settings/personal-access-tokens/new)).
+2. Name it `Ballast updates`, set **Expiration** to the longest option, and under **Repository access** choose **Only select repositories → ballast**.
+3. Under **Permissions → Repository permissions**, set **Actions** to **Read-only**. Leave everything else as it is, then click **Generate token** and copy it.
+4. In Ballast, choose **Ballast → Edit Keys…**, paste it into **GitHub update token**, and click **Save**.
+
+From then on, Ballast checks for a newer build when you open it and every hour. When it finds one, it downloads it, waits for the autopilot to finish any check in progress, swaps itself out and reopens, usually within a minute. Your keys and data stay where they are. **Ballast → Check for Updates…** checks right away. The token can only read this repository's builds, and it's stored with your other keys on your Mac. If it expires, make a new one the same way.
+
+Without a token, update by downloading the newest `Ballast.dmg` as in steps 1 and 2 above and dragging it into Applications again.
 
 Closing the window hides it and keeps the autopilot running; **Quit** (Cmd-Q) stops it. The server's log is under **Help → Open Server Log**.
 
