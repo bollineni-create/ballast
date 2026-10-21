@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac-app:
+    # Proves the Mac app compiles and the install scripts parse; the built copy is not published.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check install scripts
+        run: zsh -n app/macos/install.sh && zsh -n app/macos/build.sh
+      - name: Build Ballast.app
+        run: zsh app/macos/build.sh --no-install
+      - name: Check the bundle
+        run: |
+          plutil -lint build/Ballast.app/Contents/Info.plist
+          lipo -archs build/Ballast.app/Contents/MacOS/Ballast
+          codesign --verify build/Ballast.app
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Server starts and serves the app
+        run: |
+          PORT=5179 node server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:5179/api/status && break; sleep 1; done
+          curl -sf http://127.0.0.1:5179/ | grep -q "<title>Ballast</title>"
+          curl -sf http://127.0.0.1:5179/lib/coinbase.js > /dev/null
+          cat server.log

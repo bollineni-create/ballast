@@ -1,0 +1,4 @@
+node_modules/
+autopilot-data/
+.env
+build/

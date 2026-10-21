@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ballast</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f766e'/><path d='M6 22l6-7 5 4 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M6 22l6-7 5 4 9-11" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Ballast</span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="build">Build &amp; Test</button>
+      <button class="tab" data-view="rebalance">Rebalance</button>
+      <button class="tab" data-view="monitor">Monitor</button>
+      <button class="tab" data-view="library">Library</button>
+    </nav>
+    <span id="ai-status" class="pill">…</span>
+  </header>
+
+  <main>
+    <!-- BUILD -->
+    <section id="view-build" class="view active">
+      <div class="build-grid">
+        <div class="panel chat">
+          <h2>Describe a strategy</h2>
+          <div id="chat-log" class="chat-log"></div>
+          <form id="chat-form" class="chat-form">
+            <textarea id="chat-input" rows="3" placeholder="e.g. Buy when RSI 14 crosses above 30, sell above 70, 5% stop loss"></textarea>
+            <div class="row">
+              <label class="check"><input type="checkbox" id="chat-refine" /> Modify current code</label>
+              <button class="btn primary" type="submit" id="chat-send">Generate</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel editor">
+          <div class="panel-head">
+            <input id="strategy-name" class="name-input" value="Untitled strategy" aria-label="Strategy name" />
+            <div class="row">
+              <button class="btn" id="save-strategy">Save</button>
+              <button class="btn" id="deploy-strategy" title="Run on the simulated live feed in Monitor">Paper trade</button>
+            </div>
+          </div>
+          <textarea id="code" spellcheck="false" aria-label="Strategy code"></textarea>
+          <div class="controls">
+            <label>Data
+              <select id="data-source">
+                <option value="live" selected>Live market data</option>
+                <option value="sim">Simulated</option>
+              </select>
+            </label>
+            <label>History
+              <select id="history">
+                <option value="1">1 year</option>
+                <option value="3">3 years</option>
+                <option value="5">5 years</option>
+                <option value="10">10 years</option>
+                <option value="20">20 years</option>
+                <option value="max" selected>Max</option>
+              </select>
+            </label>
+            <label>Symbol <input id="symbol" value="SPY" size="9" list="symbol-hints" /></label>
+            <datalist id="symbol-hints"><option value="SPY"><option value="QQQ"><option value="AAPL"><option value="MSFT"><option value="NVDA"><option value="TSLA"><option value="^GSPC"><option value="BTC-USD"><option value="ETH-USD"><option value="SOL-USD"></datalist>
+            <label>Capital <input id="capital" type="number" value="10000" min="100" step="100" /></label>
+            <label>Fees+slip (bps) <input id="cost" type="number" value="10" min="0" step="1" /></label>
+            <label class="file">Import CSV <input id="csv" type="file" accept=".csv,text/csv" /></label>
+            <button class="btn primary" id="run">Run backtest</button>
+          </div>
+          <p id="data-note" class="note"></p>
+          <p id="error" class="error" hidden></p>
+        </div>
+      </div>
+
+      <div id="results" class="results" hidden>
+        <div id="metrics" class="metrics"></div>
+        <div class="panel">
+          <div class="panel-head"><h3>Equity curve</h3><span class="legend"><i style="background:var(--accent)"></i>Strategy <i style="background:var(--muted)"></i>Buy &amp; hold</span></div>
+          <canvas id="equity-chart" class="chart"></canvas>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Price &amp; trades</h3><span class="legend"><i style="background:var(--up)"></i>Buy <i style="background:var(--down)"></i>Sell</span></div>
+          <canvas id="price-chart" class="chart"></canvas>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Trades</h3><button class="btn small" id="export-trades">Export CSV</button></div>
+          <div class="table-wrap"><table id="trades"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- REBALANCE -->
+    <section id="view-rebalance" class="view">
+      <div class="monitor-bar panel">
+        <div>
+          <strong>Portfolio rebalancer</strong>
+          <span class="note">Advice only. Ballast never places orders; you review and place any trades yourself. Prices refresh every 15s. <span id="rb-updated"></span></span>
+        </div>
+        <span id="rb-status" class="pill">…</span>
+      </div>
+      <div id="rb-metrics" class="metrics"></div>
+      <div class="monitor-grid">
+        <div class="panel span-2">
+          <div class="panel-head"><h3>Holdings &amp; targets</h3><button class="btn small" id="rb-add">Add holding</button></div>
+          <div class="table-wrap"><table id="rb-holdings" class="editable"></table></div>
+          <p id="rb-warn" class="error" hidden></p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Rules</h3></div>
+          <div class="controls rb-settings">
+            <label>Cash ($) <input id="rb-cash" type="number" min="0" step="0.01" /></label>
+            <label title="Rebalance when any holding is this many percentage points away from its target">Drift band (pts) <input id="rb-band" type="number" min="0.5" step="0.5" /></label>
+            <label>Min trade ($) <input id="rb-min" type="number" min="0" step="1" /></label>
+            <label>Cash buffer (%) <input id="rb-buffer" type="number" min="0" max="50" step="0.5" /></label>
+            <label class="check"><input id="rb-fractional" type="checkbox" /> Fractional shares</label>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Suggested trades</h3>
+            <div class="row"><label class="check"><input id="rb-force" type="checkbox" /> Show even when in band</label></div>
+          </div>
+          <div class="table-wrap"><table id="rb-plan"></table></div>
+          <div class="row" style="justify-content:flex-end;margin-top:12px">
+            <button class="btn small" id="rb-copy">Copy as text</button>
+            <button class="btn small" id="rb-export">Export CSV</button>
+            <button class="btn small primary" id="rb-apply" title="Update the share counts above after you've placed these trades yourself">I placed these trades</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel" id="ap-panel" style="margin-top:16px">
+        <div class="panel-head"><h3>Alpaca paper autopilot</h3><span id="ap-pill" class="pill">…</span></div>
+        <div id="ap-body"></div>
+      </div>
+    </section>
+
+    <!-- MONITOR -->
+    <section id="view-monitor" class="view">
+      <div class="monitor-bar panel">
+        <div>
+          <select id="feed-mode" aria-label="Feed">
+            <option value="live" selected>Live market data</option>
+            <option value="sim">Simulated feed</option>
+          </select>
+          <span class="note">Updates every <select id="tick-speed"><option value="2000">2s</option><option value="5000" selected>5s</option><option value="15000">15s</option><option value="60000">60s</option></select>. <span id="feed-note"></span> Paper trading only. No real orders are sent.</span>
+        </div>
+        <button class="btn" id="feed-toggle">Pause</button>
+      </div>
+      <div class="monitor-grid">
+        <div class="panel">
+          <div class="panel-head"><h3>Watchlist</h3>
+            <form id="watch-form" class="row"><input id="watch-symbol" placeholder="Symbol" size="8" /><button class="btn small">Add</button></form>
+          </div>
+          <table id="watchlist"></table>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Price alerts</h3></div>
+          <form id="alert-form" class="row wrap">
+            <select id="alert-symbol"></select>
+            <select id="alert-dir"><option value="above">above</option><option value="below">below</option></select>
+            <input id="alert-price" type="number" step="0.01" placeholder="Price" />
+            <button class="btn small">Add alert</button>
+          </form>
+          <ul id="alerts" class="list"></ul>
+        </div>
+        <div class="panel span-2">
+          <div class="panel-head"><h3>Paper strategies</h3></div>
+          <table id="deployments"></table>
+        </div>
+        <div class="panel span-2">
+          <div class="panel-head"><h3>Activity</h3><button class="btn small" id="clear-activity">Clear</button></div>
+          <ul id="activity" class="list activity"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIBRARY -->
+    <section id="view-library" class="view">
+      <h2>Starter strategies</h2>
+      <div id="library" class="cards"></div>
+      <h2>Your saved strategies</h2>
+      <div id="saved" class="cards"></div>
+    </section>
+  </main>
+
+  <footer class="footer">For research and education. Backtests use historical or simulated data and do not predict future results. This is not investment advice.</footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

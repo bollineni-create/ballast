@@ -1,0 +1,17 @@
+{
+  "name": "ballast",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local workspace for describing, backtesting, and paper trading rule-based trading strategies.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "autopilot": "node autopilot-cli.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0"
+  }
+}
