@@ -20,7 +20,8 @@ const store = {
 };
 
 const state = {
-  server: false, // true when the local Ballast server answers (Mac app or npm start)
+  server: false, // true when a Ballast server answers (Mac app, npm start, or the hosted website)
+  autopilot: false, // true only with the local server, which holds the Alpaca keys
   ai: false,
   csv: null, // { name, bars } when the user imports real data
   chat: store.get("chat", []),
@@ -65,7 +66,7 @@ function pushChat(msg) {
 async function generate(prompt, refine) {
   const body = { prompt, currentCode: refine ? $("#code").value : undefined };
   try {
-    const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
     return await res.json();
   } catch {
@@ -129,13 +130,13 @@ async function fetchJson(url) {
 const NEEDS_APP = "Live stock prices need the Ballast Mac app (or npm start). On the website, live data covers crypto pairs like BTC-USD";
 
 async function fetchHistory(symbol, years) {
-  if (state.server) return fetchJson(`/api/history?symbol=${encodeURIComponent(symbol)}&years=${years}`);
+  if (state.server) return fetchJson(`api/history?symbol=${encodeURIComponent(symbol)}&years=${years}`);
   if (!isCrypto(symbol)) throw new Error(NEEDS_APP);
   return { symbol, source: "Coinbase", ...(await coinbaseHistory(symbol, years)) };
 }
 
 async function fetchQuotes(symbols) {
-  if (state.server) return fetchJson(`/api/quotes?symbols=${symbols.map(encodeURIComponent).join(",")}`);
+  if (state.server) return fetchJson(`api/quotes?symbols=${symbols.map(encodeURIComponent).join(",")}`);
   const quotes = {}, errors = {};
   await Promise.all(symbols.map((s) => isCrypto(s)
     ? coinbaseQuote(s).then((q) => (quotes[s] = { symbol: s, source: "Coinbase", ...q }), (e) => (errors[s] = e.message))
@@ -818,8 +819,9 @@ async function postJson(url, body) {
 
 let apStatus = null;
 async function loadAutopilot() {
+  if (!state.autopilot) return renderAutopilot();
   try {
-    apStatus = await fetchJson("/api/autopilot/status");
+    apStatus = await fetchJson("api/autopilot/status");
   } catch (err) {
     apStatus = { error: err.message };
   }
@@ -828,12 +830,12 @@ async function loadAutopilot() {
 
 function renderAutopilot(extra = "") {
   const s = apStatus, body = $("#ap-body"), pill = $("#ap-pill");
-  if (!s) return;
-  if (!state.server) {
+  if (!state.autopilot) {
     pill.textContent = "Mac app only";
     body.innerHTML = `<p class="note">The paper-trading autopilot needs the Ballast Mac app (or <code>npm start</code>), which keeps your Alpaca keys on your own computer. This website never sees any keys.</p>`;
     return;
   }
+  if (!s) return;
   if (s.error) {
     pill.textContent = "Unavailable";
     body.innerHTML = `<p class="note">Couldn't reach the autopilot: ${esc(s.error)}. Is the server running?</p>`;
@@ -881,13 +883,13 @@ function renderAutopilot(extra = "") {
   $("#ap-sync").onclick = async () => {
     const targets = portfolio.holdings.filter((h) => h.symbol && h.target > 0).map((h) => ({ symbol: h.symbol, target: h.target }));
     try {
-      await postJson("/api/autopilot/config", { targets, band: portfolio.band, minTrade: Math.max(1, portfolio.minTrade), cashBuffer: portfolio.cashBuffer });
+      await postJson("api/autopilot/config", { targets, band: portfolio.band, minTrade: Math.max(1, portfolio.minTrade), cashBuffer: portfolio.cashBuffer });
       await loadAutopilot();
     } catch (err) { renderAutopilot(`<p class="error">${esc(err.message)}</p>`); }
   };
   $("#ap-toggle").onclick = async () => {
     try {
-      await postJson("/api/autopilot/config", { enabled: !c.enabled });
+      await postJson("api/autopilot/config", { enabled: !c.enabled });
       log(`Paper autopilot turned ${c.enabled ? "off" : "on"}.`);
       await loadAutopilot();
     } catch (err) { renderAutopilot(`<p class="error">${esc(err.message)}</p>`); }
@@ -896,14 +898,14 @@ function renderAutopilot(extra = "") {
     if (!confirm("Run a rebalance check on the paper account now? If anything is out of band it will place paper orders.")) return;
     $("#ap-run").disabled = true;
     try {
-      const r = await postJson("/api/autopilot/run");
+      const r = await postJson("api/autopilot/run");
       await loadAutopilot();
       renderAutopilot(`<p class="note">${esc(r.message || r.skipped || "Done")}</p>`);
     } catch (err) { renderAutopilot(`<p class="error">${esc(err.message)}</p>`); }
   };
   $("#ap-report").onclick = async () => {
     try {
-      const r = await fetchJson("/api/autopilot/report");
+      const r = await fetchJson("api/autopilot/report");
       renderAutopilot(`<pre class="report">${esc(r.markdown)}</pre>`);
     } catch (err) { renderAutopilot(`<p class="note">${esc(err.message)}</p>`); }
   };
@@ -914,8 +916,12 @@ setInterval(() => $("#view-rebalance").classList.contains("active") && loadAutop
 // ---------- init ----------
 (async function init() {
   try {
-    state.ai = (await fetchJson("/api/status")).ai;
+    const status = await fetchJson("api/status");
+    state.ai = status.ai;
     state.server = true;
+    // The hosted website has a server for prices and the builder, but the autopilot
+    // and its Alpaca keys only ever run in the Mac app.
+    state.autopilot = status.autopilot !== false;
   } catch { /* no server: website mode */ }
   document.documentElement.classList.toggle("website", !state.server);
   // The website can only load real prices for crypto, so open on a real series there.
@@ -923,8 +929,8 @@ setInterval(() => $("#view-rebalance").classList.contains("active") && loadAutop
   const pill = $("#ai-status");
   pill.textContent = state.ai ? "AI builder: Claude" : "AI builder: offline templates";
   pill.classList.toggle("on", state.ai);
-  pill.title = state.ai ? "Strategies are generated by Claude." : state.server ? "Set ANTHROPIC_API_KEY before starting the server to enable the AI builder." : "The Claude strategy builder runs in the Mac app.";
-  if (!state.server) pill.insertAdjacentHTML("afterend", `<a class="pill on" href="https://github.com/bollineni-create/ballast#install-it-on-a-mac" target="_blank" rel="noopener">Get the Mac app</a>`);
+  pill.title = state.ai ? "Strategies are generated by Claude." : !state.server ? "The Claude strategy builder runs in the Mac app." : state.autopilot ? "Set ANTHROPIC_API_KEY before starting the server to enable the AI builder." : "This site has no Claude key set, so strategies come from the built-in builder.";
+  if (!state.autopilot) pill.insertAdjacentHTML("afterend", `<a class="pill on" href="https://github.com/bollineni-create/ballast#install-it-on-a-mac" target="_blank" rel="noopener">Get the Mac app</a>`);
 
   $("#feed-mode").value = store.get("feedMode", "live");
   $("#history").value = store.get("history", "max");
