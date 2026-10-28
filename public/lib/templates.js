@@ -91,13 +91,29 @@ RISK
     };
   }
 
+  if (/\b(?:goes|go|drops?|dips?|falls?|trades?|closes?|is|gets?) (?:under|below)\b|\bdips?\b|\bpullback\b/.test(text)) {
+    const len = n.find((x) => x >= 5) ?? 200;
+    return {
+      name: `Buy the dip below SMA ${len}`,
+      explanation: `Buys when price closes below its ${len}-day average and sells once it closes back above it.${riskText ? ` Uses a ${riskText}.` : ""} The rules trade the symbol you backtest, so set Symbol to what you want to buy (QQQ for the Nasdaq-100, SPY for the S&P 500).`,
+      code: withRisk(`const avg = ta.sma(data.close, ${len});
+
+return {
+  entry: (i) => data.close[i] < avg[i],
+  exit: (i) => data.close[i] > avg[i],
+RISK
+};`),
+    };
+  }
+
   // Default: moving-average crossover.
+  const recognized = /\b[se]ma\b|moving average|exponential|cross/.test(text);
   const kind = /\bema\b|exponential/.test(text) ? "ema" : "sma";
   const [a = 20, b = 50] = n.filter((x) => x >= 2);
   const fast = Math.min(a, b), slow = Math.max(a, b) === fast ? fast * 2 : Math.max(a, b);
   return {
     name: `${kind.toUpperCase()} ${fast}/${slow} crossover`,
-    explanation: `Buys when the ${fast}-bar ${kind.toUpperCase()} crosses above the ${slow}-bar ${kind.toUpperCase()} and sells when it crosses back below.${riskText ? ` Uses a ${riskText}.` : ""}`,
+    explanation: `${recognized ? "" : "The built-in builder didn't recognize this idea, so here is its default setup. It handles moving-average crossovers, RSI, Bollinger Bands, MACD, breakouts and dips below an average; a valid Anthropic key lets Claude write anything else. "}Buys when the ${fast}-bar ${kind.toUpperCase()} crosses above the ${slow}-bar ${kind.toUpperCase()} and sells when it crosses back below.${riskText ? ` Uses a ${riskText}.` : ""}`,
     code: withRisk(`const fast = ta.${kind}(data.close, ${fast});
 const slow = ta.${kind}(data.close, ${slow});
 

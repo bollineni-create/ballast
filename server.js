@@ -3,8 +3,8 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { aiEnabled, generateStrategy } from "./ai.js";
-import { getHistory, getQuotes, stockProvider } from "./marketdata.js";
+import { aiEnabled, aiKeyError, generateStrategy } from "./ai.js";
+import { getHistory, getQuotes, stockProvider, alpacaKeyError } from "./marketdata.js";
 import { alpacaConfigured } from "./alpaca.js";
 import { runOnce, status as autopilotStatus, saveConfig, report, reportMarkdown } from "./autopilot.js";
 
@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
       const r = await report();
       return send(res, 200, { ...r, markdown: reportMarkdown(r) });
     }
-    if (url.pathname === "/api/status") return send(res, 200, { ai: aiEnabled, stockProvider });
+    if (url.pathname === "/api/status") return send(res, 200, { ai: aiEnabled && !aiKeyError, aiKeyError, stockProvider: stockProvider(), alpacaKeyError });
     if (url.pathname === "/api/history") {
       const raw = url.searchParams.get("years");
       const years = raw === "max" ? "max" : Math.min(50, Math.max(1, Number(raw) || 3));
@@ -74,7 +74,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Ballast running at http://${HOST}:${PORT}`);
-  console.log(`Market data: ${stockProvider} for stocks, Coinbase for crypto pairs (e.g. BTC-USD)`);
+  console.log(`Market data: ${stockProvider()} for stocks, Coinbase for crypto pairs (e.g. BTC-USD)`);
   if (alpacaConfigured()) {
     console.log("Alpaca paper autopilot: checks every 5 minutes whether today's rebalance check is due (only acts when enabled).");
     const tick = () => runOnce().then((r) => r.skipped || console.log(`[autopilot] ${r.type}: ${r.message ?? ""}`), (e) => console.error("[autopilot]", e.message));
