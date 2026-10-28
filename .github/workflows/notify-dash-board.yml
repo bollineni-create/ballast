@@ -1,0 +1,22 @@
+# Tells bollineni-create/dash-board that main moved, so bollineni.co picks up this
+# app within a minute or two. Needs a DASH_BOARD_TOKEN secret: a fine-grained token
+# with Contents read and write on dash-board. Without it this step only warns, and
+# dash-board's own 5-minute check still catches the change.
+name: Notify dash-board
+on:
+  push:
+    branches: [main]
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          TOKEN: ${{ secrets.DASH_BOARD_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::DASH_BOARD_TOKEN is not set, so dash-board will pick this up on its next scheduled check."
+            exit 0
+          fi
+          curl -fsS -X POST https://api.github.com/repos/bollineni-create/dash-board/dispatches \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            -d '{"event_type":"app-updated","client_payload":{"repo":"${{ github.repository }}","sha":"${{ github.sha }}"}}'
