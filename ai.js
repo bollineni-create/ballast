@@ -7,6 +7,10 @@ import { templateStrategy } from "./public/lib/templates.js";
 export const aiEnabled = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 const client = aiEnabled ? new Anthropic() : null;
 
+// Set when Anthropic rejects the key, so the page can say so instead of claiming Claude is on.
+export let aiKeyError = null;
+const KEY_HELP = "Anthropic rejected the API key. Paste a valid key (it starts with sk-ant-) into Ballast > Edit Keys; until then the built-in builder is used.";
+
 const SYSTEM = `You turn plain-English trading ideas into strategy code for a long-only daily-bar backtester.
 
 Write the BODY of a JavaScript function with parameters (data, ta). It must return:
@@ -62,6 +66,11 @@ export async function generateStrategy(prompt, currentCode) {
   try {
     return await generateWithClaude(prompt, currentCode);
   } catch (e) {
-    return { ...templateStrategy(prompt), source: "template", warning: `AI unavailable (${e.message}); used the built-in builder.` };
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
+      aiKeyError = KEY_HELP;
+      return { ...templateStrategy(prompt), source: "template", warning: KEY_HELP };
+    }
+    const reason = e instanceof Anthropic.APIError ? e.error?.error?.message || `HTTP ${e.status}` : e.message;
+    return { ...templateStrategy(prompt), source: "template", warning: `Claude unavailable (${reason}); used the built-in builder.` };
   }
 }

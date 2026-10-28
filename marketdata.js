@@ -20,7 +20,18 @@ const alpacaFeed = process.env.ALPACA_FEED || "iex";
 const alpacaData = (process.env.ALPACA_DATA_URL || "https://data.alpaca.markets").replace(/\/$/, "");
 
 export { isCrypto };
-export const stockProvider = alpacaKeys ? "Alpaca" : "Yahoo Finance";
+
+// Set when Alpaca rejects the keys (HTTP 401/403). Stocks then come from Yahoo
+// Finance for the rest of this run instead of failing every request.
+export let alpacaKeyError = null;
+const useAlpaca = () => alpacaKeys && !alpacaKeyError;
+export const stockProvider = () => (useAlpaca() ? "Alpaca" : "Yahoo Finance");
+
+function rejectAlpaca(e) {
+  if (!e.auth) throw e;
+  alpacaKeyError = `Alpaca rejected the API keys (HTTP ${e.auth}), so stock prices come from Yahoo Finance. Check the Alpaca paper keys in Ballast > Edit Keys.`;
+  console.warn(`[market data] ${alpacaKeyError}`);
+}
 
 export function cleanSymbol(raw) {
   const s = String(raw || "").trim().toUpperCase();
@@ -39,6 +50,11 @@ async function getJson(url, headers = {}) {
   const res = await fetch(url, { headers: { ...UA, ...headers }, signal: AbortSignal.timeout(15000) });
   if (res.status === 404) throw new HttpError(404, "Symbol not found");
   if (res.status === 429) throw new HttpError(429, "Data provider rate limit hit; try again shortly");
+  if (res.status === 401 || res.status === 403) {
+    const e = new HttpError(502, `Data provider rejected the request (HTTP ${res.status})`);
+    e.auth = res.status;
+    throw e;
+  }
   if (!res.ok) throw new HttpError(502, `Data provider returned HTTP ${res.status}`);
   return res.json();
 }
@@ -134,12 +150,15 @@ export async function getHistory(rawSymbol, years = 3) {
   const key = `${symbol}:${years}`;
   const hit = historyCache.get(key);
   if (hit && Date.now() - hit.at < HISTORY_TTL) return hit.data;
-  const source = isCrypto(symbol) ? "Coinbase" : stockProvider;
-  const raw = source === "Coinbase" ? await coinbaseHistory(symbol, years)
-    : source === "Alpaca" ? await alpacaHistory(symbol, years)
-    : await yahooHistory(symbol, years);
+  let source = isCrypto(symbol) ? "Coinbase" : stockProvider();
+  let raw;
+  if (source === "Alpaca") raw = await alpacaHistory(symbol, years).catch(rejectAlpaca);
+  if (!raw) {
+    if (source === "Alpaca") source = "Yahoo Finance";
+    raw = source === "Coinbase" ? await coinbaseHistory(symbol, years) : await yahooHistory(symbol, years);
+  }
   if (raw.bars.length < 2) throw new HttpError(404, `Not enough history for ${symbol}`);
-  const data = { symbol, source, ...raw };
+  const data = { symbol, source, ...raw, ...(source === "Yahoo Finance" && alpacaKeyError && { warning: alpacaKeyError }) };
   historyCache.set(key, { at: Date.now(), data });
   return data;
 }
@@ -159,13 +178,17 @@ export async function getQuotes(rawSymbols, { fresh = false } = {}) {
   };
   const crypto = stale.filter(isCrypto), stocks = stale.filter((s) => !isCrypto(s));
   const jobs = crypto.map((s) => coinbaseQuote(s).then((q) => save(s, q, "Coinbase"), (e) => (errors[s] = e.message)));
-  if (stocks.length && alpacaKeys) {
+  const yahoo = (list) => Promise.all(list.map((s) => yahooQuote(s).then((q) => save(s, q, "Yahoo Finance"), (e) => (errors[s] = e.message))));
+  if (stocks.length && useAlpaca()) {
     jobs.push(alpacaQuotes(stocks).then(
       (qs) => stocks.forEach((s) => (qs[s] ? save(s, qs[s], "Alpaca") : (errors[s] = "No Alpaca quote"))),
-      (e) => stocks.forEach((s) => (errors[s] = e.message))
+      (e) => {
+        try { rejectAlpaca(e); } catch { return stocks.forEach((s) => (errors[s] = e.message)); }
+        return yahoo(stocks);
+      }
     ));
   } else {
-    jobs.push(...stocks.map((s) => yahooQuote(s).then((q) => save(s, q, "Yahoo Finance"), (e) => (errors[s] = e.message))));
+    jobs.push(yahoo(stocks));
   }
   await Promise.all(jobs);
   return { quotes: out, errors };
