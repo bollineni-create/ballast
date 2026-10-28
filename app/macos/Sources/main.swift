@@ -587,7 +587,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func editKeys(_ sender: Any?) { showKeysForm(readKeys(keysFile), problems: []) }
 
     func showKeysForm(_ saved: [String: String], problems: [String]) {
-        guard window.attachedSheet == nil else { return }
+        guard window.attachedSheet == nil else {
+            // Another sheet is up: rejected keys must still be reported, so try again once it's gone.
+            if !problems.isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showKeysForm(saved, problems: problems) } }
+            return
+        }
         let envFile = keysFile
         var keys = saved
         let fields: [(name: String, label: String, secret: Bool)] = [
@@ -628,9 +632,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             FileManager.default.createFile(atPath: envFile.path, contents: Data(text.utf8))
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envFile.path)
             restartServer(nil)
-            checkKeys(keys) { found in if !found.isEmpty { self.showKeysForm(keys, problems: found) } }
-            if isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.checkForAppUpdate(manual: true) }
+            // Check the keys before any update-check sheet can claim the window, so a rejection always shows.
+            checkKeys(keys) { found in
+                if !found.isEmpty { self.showKeysForm(keys, problems: found) }
+                else if self.isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty { self.checkForAppUpdate(manual: true) }
             }
         }
     }
