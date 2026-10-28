@@ -1,14 +1,18 @@
-// Loads .env (KEY=value lines) before other modules read process.env.
+// Loads the keys file (KEY=value lines) before other modules read process.env.
 // Import this first. Variables already set in the environment take precedence.
 // BALLAST_HOME moves .env and autopilot-data out of the code folder; the packaged
 // Mac app sets it to ~/Library/Application Support/Ballast.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const home = process.env.BALLAST_HOME || path.dirname(fileURLToPath(import.meta.url));
-const file = path.join(home, ".env");
-if (fs.existsSync(file)) process.loadEnvFile(file);
+// Keys: BALLAST_ENV_FILE (the Mac app sets it), else .env in home, else on a Mac the keys file every
+// copy of the Mac app shares, so `npm start` uses the keys entered in Ballast > Edit Keys.
+const shared = process.platform === "darwin" ? path.join(os.homedir(), "Library/Application Support/Ballast/.env") : null;
+const file = process.env.BALLAST_ENV_FILE || [path.join(home, ".env"), shared].find((f) => f && fs.existsSync(f));
+if (file && fs.existsSync(file)) process.loadEnvFile(file);
 
 // A test folder can name its own paper account with "alpacaKeyPrefix" in its
 // config.json (e.g. "ALPACA_2" reads ALPACA_2_API_KEY_ID / ALPACA_2_API_SECRET_KEY).

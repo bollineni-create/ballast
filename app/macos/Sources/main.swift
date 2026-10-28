@@ -14,6 +14,8 @@ import WebKit
 
 let port = Int(ProcessInfo.processInfo.environment["BALLAST_PORT"] ?? "") ?? 5179
 let home = URL(string: "http://127.0.0.1:\(port)/")!
+/// Keys the keys form manages; the server reads them only from the keys file.
+let keyNames: Set<String> = ["ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "ANTHROPIC_API_KEY", "BALLAST_UPDATE_TOKEN"]
 let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Ballast.log")
 
 /// GUI apps don't get the shell's PATH, so add the usual places Node.js is installed.
@@ -55,7 +57,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     var isPackaged: Bool { codeFolder != nil && codeFolder == bundledCode }
 
-    /// Keys (.env) and autopilot data: the project folder when built from source, else Application Support.
+    /// The keys file. Every copy of Ballast on this Mac (the DMG or one built from source) shares it, so keys
+    /// are entered once and survive updates, reinstalls, new clones and switching between the two.
+    var keysFile: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Ballast")
+        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let file = support.appendingPathComponent(".env")
+        // Source builds used to keep keys in the project folder: move them here once.
+        if !FileManager.default.fileExists(atPath: file.path), let old = sourceFolder?.appendingPathComponent(".env"),
+           FileManager.default.fileExists(atPath: old.path) {
+            try? FileManager.default.moveItem(at: old, to: file)
+        }
+        return file
+    }
+
+    /// Autopilot data: the project folder when built from source, else Application Support.
     var dataFolder: URL? {
         if !isPackaged { return codeFolder }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Ballast")
@@ -185,7 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             p.currentDirectoryURL = folder
             var env = ["PATH": searchPath, "PORT": String(port), "HOST": "127.0.0.1"]
             if isPackaged, let data = dataFolder { env["BALLAST_HOME"] = data.path }
-            p.environment = ProcessInfo.processInfo.environment.merging(env) { $1 }
+            env["BALLAST_ENV_FILE"] = keysFile.path
+            // The keys file decides the keys: don't let stale copies in the inherited environment override it.
+            let inherited = ProcessInfo.processInfo.environment.filter { !keyNames.contains($0.key) }
+            p.environment = inherited.merging(env) { $1 }
             p.standardOutput = log ?? FileHandle.nullDevice
             p.standardError = log ?? FileHandle.nullDevice
             p.terminationHandler = { [weak self] proc in
@@ -306,8 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var buildSHA: String { Bundle.main.object(forInfoDictionaryKey: "BallastBuildSHA") as? String ?? "" }
 
     func updateToken() -> String? {
-        guard let folder = dataFolder, let token = readKeys(folder.appendingPathComponent(".env"))["BALLAST_UPDATE_TOKEN"],
-              !token.isEmpty else { return nil }
+        guard let token = readKeys(keysFile)["BALLAST_UPDATE_TOKEN"], !token.isEmpty else { return nil }
         return token
     }
 
@@ -519,17 +537,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// The first time the app runs without a keys file, offers the keys form once.
     func offerKeysOnce() {
-        guard let folder = dataFolder, !FileManager.default.fileExists(atPath: folder.appendingPathComponent(".env").path),
-              !UserDefaults.standard.bool(forKey: "offeredKeys") else { return }
+        guard !FileManager.default.fileExists(atPath: keysFile.path), !UserDefaults.standard.bool(forKey: "offeredKeys") else { return }
         UserDefaults.standard.set(true, forKey: "offeredKeys")
         editKeys(nil)
     }
 
-    /// A small form for the optional keys. Saving writes them to .env on this Mac and restarts the server.
-    @objc func editKeys(_ sender: Any?) {
-        guard let folder = dataFolder, window.attachedSheet == nil else { return }
-        let envFile = folder.appendingPathComponent(".env")
-        var keys = readKeys(envFile)
+    /// Cleans a pasted key: drops spaces, line breaks, surrounding quotes and a leading "NAME=".
+    func cleanKey(_ raw: String, name: String) -> String {
+        var s = raw.components(separatedBy: .whitespacesAndNewlines).joined()
+        if s.hasPrefix(name + "=") { s.removeFirst(name.count + 1) }
+        return s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+    }
+
+    /// Tries the Alpaca and Anthropic keys against their services and reports the ones they reject.
+    /// A network failure counts as fine, so being offline never blocks saving.
+    func checkKeys(_ keys: [String: String], done: @escaping ([String]) -> Void) {
+        var checks: [(problem: String, request: URLRequest)] = []
+        if let id = keys["ALPACA_API_KEY_ID"], let secret = keys["ALPACA_API_SECRET_KEY"], !id.isEmpty || !secret.isEmpty {
+            var r = URLRequest(url: URL(string: "https://paper-api.alpaca.markets/v2/account")!)
+            r.setValue(id, forHTTPHeaderField: "APCA-API-KEY-ID")
+            r.setValue(secret, forHTTPHeaderField: "APCA-API-SECRET-KEY")
+            checks.append((problem: "Alpaca rejected the paper key ID and secret. Copy both from the Paper Trading dashboard at alpaca.markets (live-account keys don't work); regenerate them if the secret is no longer shown.", request: r))
+        }
+        if let key = keys["ANTHROPIC_API_KEY"], !key.isEmpty {
+            var r = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=1")!)
+            r.setValue(key, forHTTPHeaderField: "x-api-key")
+            r.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            checks.append((problem: "Anthropic rejected the API key. Create one at console.anthropic.com under API Keys; it starts with sk-ant-.", request: r))
+        }
+        let group = DispatchGroup()
+        var problems: [String] = []
+        for check in checks {
+            var request = check.request
+            request.timeoutInterval = 10
+            group.enter()
+            URLSession.shared.dataTask(with: request) { _, response, _ in
+                let code = (response as? HTTPURLResponse)?.statusCode
+                DispatchQueue.main.async {
+                    if code == 401 || code == 403 { problems.append(check.problem) }
+                    group.leave()
+                }
+            }.resume()
+        }
+        group.notify(queue: .main) { done(problems) }
+    }
+
+    /// A small form for the optional keys. Saving writes them to the keys file, restarts the server, then
+    /// checks the keys and reopens the form with what was rejected, so a bad key is caught right away.
+    @objc func editKeys(_ sender: Any?) { showKeysForm(readKeys(keysFile), problems: []) }
+
+    func showKeysForm(_ saved: [String: String], problems: [String]) {
+        guard window.attachedSheet == nil else {
+            // Another sheet is up: rejected keys must still be reported, so try again once it's gone.
+            if !problems.isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showKeysForm(saved, problems: problems) } }
+            return
+        }
+        let envFile = keysFile
+        var keys = saved
         let fields: [(name: String, label: String, secret: Bool)] = [
             ("ALPACA_API_KEY_ID", "Alpaca paper API key ID", false),
             ("ALPACA_API_SECRET_KEY", "Alpaca paper secret key", true),
@@ -554,21 +618,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
 
         let alert = NSAlert()
-        alert.messageText = "Keys"
-        alert.informativeText = "All optional, and saved only on this Mac. Alpaca paper keys give official stock prices and turn on the paper autopilot: use a paper account nothing else trades in. Without them, stock prices come from Yahoo Finance. The GitHub update token lets Ballast download its own updates from the private repository."
+        alert.messageText = problems.isEmpty ? "Keys" : "Check these keys"
+        if !problems.isEmpty { alert.alertStyle = .warning }
+        alert.informativeText = problems.isEmpty ? "All optional. Saved only on this Mac, and kept through updates and reinstalls, so you enter them once. Alpaca paper keys give official stock prices and turn on the paper autopilot: use a paper account nothing else trades in. Without them, stock prices come from Yahoo Finance. The GitHub update token lets Ballast download its own updates from the private repository." : problems.joined(separator: "\n\n") + "\n\nThe keys are saved as they are; fix them here or click Cancel."
         alert.accessoryView = stack
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         window.makeKeyAndOrderFront(nil)
         alert.beginSheetModal(for: window) { [self] response in
             guard response == .alertFirstButtonReturn else { return }
-            for f in fields { keys[f.name] = inputs[f.name]?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+            for f in fields { keys[f.name] = cleanKey(inputs[f.name]?.stringValue ?? "", name: f.name) }
             let text = "# Ballast keys. This file stays on this Mac.\n" + keys.keys.sorted().map { "\($0)=\(keys[$0] ?? "")" }.joined(separator: "\n") + "\n"
             FileManager.default.createFile(atPath: envFile.path, contents: Data(text.utf8))
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envFile.path)
             restartServer(nil)
-            if isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.checkForAppUpdate(manual: true) }
+            // Check the keys before any update-check sheet can claim the window, so a rejection always shows.
+            checkKeys(keys) { found in
+                if !found.isEmpty { self.showKeysForm(keys, problems: found) }
+                else if self.isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty { self.checkForAppUpdate(manual: true) }
             }
         }
     }

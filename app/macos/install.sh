@@ -6,7 +6,8 @@
 #   ./app/macos/install.sh
 #
 # Optional: put ALPACA_API_KEY_ID=... ALPACA_API_SECRET_KEY=... ANTHROPIC_API_KEY=... before `zsh` to save
-# those keys on a first install. They're kept only in ~/ballast/.env on this Mac, which git never uploads.
+# those keys on a first install. They're kept only in ~/Library/Application Support/Ballast/.env on this Mac,
+# the keys file every copy of Ballast shares, so they survive reinstalls and new clones.
 # To change keys later, use Ballast → Edit Keys… in the app.
 set -euo pipefail
 DIR="${BALLAST_DIR:-$HOME/ballast}"
@@ -39,7 +40,10 @@ fi
 
 # Keys, asked once. Alpaca paper keys give live stock prices and the paper autopilot; without them
 # stock prices come from Yahoo Finance. The Anthropic key turns on the Claude strategy builder.
-ENVF="$DIR/.env"
+ENVF="$HOME/Library/Application Support/Ballast/.env"
+mkdir -p "${ENVF:h}"
+# Earlier installs kept keys in the clone: move them to the shared keys file.
+if [[ -f "$DIR/.env" && ! -f "$ENVF" ]]; then mv "$DIR/.env" "$ENVF"; fi
 alpaca_id="${ALPACA_API_KEY_ID:-}" alpaca_secret="${ALPACA_API_SECRET_KEY:-}" anthropic="${ANTHROPIC_API_KEY:-}"
 if [[ ! -f "$ENVF" && -z "$alpaca_id$anthropic" ]] && { : </dev/tty; } 2>/dev/null; then
   echo
@@ -52,7 +56,7 @@ fi
 if [[ ! -f "$ENVF" ]]; then
   umask 077
   {
-    echo "# Ballast keys. This file stays on this Mac (git ignores it)."
+    echo "# Ballast keys. This file stays on this Mac."
     echo "ALPACA_API_KEY_ID=$alpaca_id"
     echo "ALPACA_API_SECRET_KEY=$alpaca_secret"
     echo "ANTHROPIC_API_KEY=$anthropic"
