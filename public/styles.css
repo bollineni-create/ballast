@@ -99,7 +99,9 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .check { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
 
 .editor { display: flex; flex-direction: column; }
-.name-input { font-weight: 600; font-size: 15px; border-color: transparent; background: transparent; min-width: 0; flex: 1; }
+/* Wide enough for a typical name; when the buttons leave less room than that, they wrap under it
+   instead of the name being cut short. */
+.name-input { font-weight: 600; font-size: 15px; border-color: transparent; background: transparent; min-width: min(12em, 100%); flex: 1; }
 .name-input:hover { border-color: var(--border); }
 #code {
   flex: 1; min-height: 300px; width: 100%;
@@ -168,7 +170,11 @@ pre.report { white-space: pre-wrap; background: var(--surface-2); padding: 12px;
 
 @media (max-width: 860px) {
   .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
-  .tabs { order: 3; flex-basis: 100%; overflow-x: auto; }
+  .tabs { order: 3; flex-basis: 100%; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; white-space: nowrap; }
+  /* Pills sit at the end of the brand row instead of wrapping under it. */
+  #ai-status { margin-left: auto; }
   main { padding: 16px; }
   .build-grid, .monitor-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
@@ -176,3 +182,9 @@ pre.report { white-space: pre-wrap; background: var(--surface-2); padding: 12px;
   .controls #run { margin-left: 0; }
 }
 a.pill { text-decoration: none; }
+/* Phone-width screens (a phone, the folded iPhone Duo): one tidy row of brand and status. The Mac
+   app link is no use on a phone, so it goes rather than wrapping onto a line of its own. */
+@media (max-width: 560px) {
+  .topbar a.pill[href*="install-it-on-a-mac"] { display: none; }
+  .tab { padding: 8px 10px; }
+}
