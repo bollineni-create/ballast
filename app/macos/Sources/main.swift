@@ -593,12 +593,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// A small form for the optional keys. Saving writes them to the keys file, restarts the server, then
     /// checks the keys and reopens the form with what was rejected, so a bad key is caught right away.
-    @objc func editKeys(_ sender: Any?) { showKeysForm(readKeys(keysFile), problems: []) }
+    @objc func editKeys(_ sender: Any?) {
+        keysEdit += 1
+        showKeysForm(readKeys(keysFile), problems: [])
+    }
 
-    func showKeysForm(_ saved: [String: String], problems: [String]) {
+    /// Counts openings of the keys form and saves, so a key check that finishes after a newer one
+    /// never reopens the form with keys that have since been replaced.
+    var keysEdit = 0
+
+    /// `edit` is set when a key check reopens the form: it shows only if nothing newer happened since that save.
+    func showKeysForm(_ saved: [String: String], problems: [String], edit: Int? = nil) {
+        if let edit = edit, edit != keysEdit { return }
         guard window.attachedSheet == nil else {
             // Another sheet is up: rejected keys must still be reported, so try again once it's gone.
-            if !problems.isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showKeysForm(saved, problems: problems) } }
+            if !problems.isEmpty { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showKeysForm(saved, problems: problems, edit: edit) } }
             return
         }
         let envFile = keysFile
@@ -641,9 +650,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             FileManager.default.createFile(atPath: envFile.path, contents: Data(text.utf8))
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envFile.path)
             restartServer(nil)
+            keysEdit += 1
+            let edit = keysEdit
             // Check the keys before any update-check sheet can claim the window, so a rejection always shows.
             checkKeys(keys) { found in
-                if !found.isEmpty { self.showKeysForm(keys, problems: found) }
+                guard edit == self.keysEdit else { return }
+                if !found.isEmpty { self.showKeysForm(keys, problems: found, edit: edit) }
                 else if self.isPackaged, !(keys["BALLAST_UPDATE_TOKEN"] ?? "").isEmpty { self.checkForAppUpdate(manual: true) }
             }
         }
