@@ -18,7 +18,7 @@ Nothing else to install: the app carries everything it needs.
    - **Alpaca paper keys** switch stock prices to Alpaca's official feed and turn on the paper autopilot. Use a paper account that nothing else is trading in.
    - **Anthropic key** turns on the Claude strategy builder.
 
-Keys, the autopilot's settings and its log are kept in `~/Library/Application Support/Ballast` on your Mac, never in the app or this repository. **Help → Show Ballast Folder** opens it.
+Keys, the autopilot's settings and its log are kept in `~/Library/Application Support/Ballast` on your Mac, never in the app or this repository. **Help → Show Ballast Folder** opens it. You enter keys once: every copy of Ballast on the Mac shares them, and updates and reinstalls keep them. When you save keys, Ballast checks them with Alpaca and Anthropic and tells you right away if one is rejected.
 
 ### Automatic updates (one-time setup)
 
@@ -44,7 +44,7 @@ npm install
 npm start
 ```
 
-Then open http://127.0.0.1:5173. Set `PORT` to use a different port. Keys go in `.env` in this folder (copy `.env.example`; git ignores `.env`).
+Then open http://127.0.0.1:5173. Set `PORT` to use a different port. Keys go in `.env` in this folder (copy `.env.example`; git ignores `.env`). On a Mac without that file, the server uses the keys saved in the Mac app.
 
 To get a Mac app that runs from your clone and updates itself from `main` (it uses your Git sign-in to pull), run `./app/macos/install.sh` from the clone, or `./app/macos/build.sh` to rebuild it after changing `app/macos`.
 
