@@ -552,18 +552,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Tries the Alpaca and Anthropic keys against their services and reports the ones they reject.
     /// A network failure counts as fine, so being offline never blocks saving.
     func checkKeys(_ keys: [String: String], done: @escaping ([String]) -> Void) {
-        var checks: [(problem: String, request: URLRequest)] = []
+        // Each check is a request and a reading of its answer (status code, body): what to tell the user, or nil if it's fine.
+        var checks: [(request: URLRequest, problem: (Int, String) -> String?)] = []
         if let id = keys["ALPACA_API_KEY_ID"], let secret = keys["ALPACA_API_SECRET_KEY"], !id.isEmpty || !secret.isEmpty {
             var r = URLRequest(url: URL(string: "https://paper-api.alpaca.markets/v2/account")!)
             r.setValue(id, forHTTPHeaderField: "APCA-API-KEY-ID")
             r.setValue(secret, forHTTPHeaderField: "APCA-API-SECRET-KEY")
-            checks.append((problem: "Alpaca rejected the paper key ID and secret. Copy both from the Paper Trading dashboard at alpaca.markets (live-account keys don't work); regenerate them if the secret is no longer shown.", request: r))
+            checks.append((request: r, problem: { code, _ in
+                code == 401 || code == 403 ? "Alpaca rejected the paper key ID and secret. Copy both from the Paper Trading dashboard at alpaca.markets (live-account keys don't work); regenerate them if the secret is no longer shown." : nil
+            }))
         }
         if let key = keys["ANTHROPIC_API_KEY"], !key.isEmpty {
             var r = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models?limit=1")!)
             r.setValue(key, forHTTPHeaderField: "x-api-key")
             r.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            checks.append((problem: "Anthropic rejected the API key. Create one at console.anthropic.com under API Keys; it starts with sk-ant-.", request: r))
+            checks.append((request: r, problem: { code, body in
+                if code == 401 || code == 403 { return "Anthropic rejected the API key. Create one at console.anthropic.com under API Keys; it starts with sk-ant-." }
+                // A key that isn't tied to a workspace is refused with a 400 that asks for a workspace header.
+                if code == 400, body.contains("workspace") { return "Anthropic refused the API key because it isn't tied to a workspace. Create a new key at console.anthropic.com under API Keys and pick a workspace for it (Default works)." }
+                return nil
+            }))
         }
         let group = DispatchGroup()
         var problems: [String] = []
@@ -571,10 +579,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             var request = check.request
             request.timeoutInterval = 10
             group.enter()
-            URLSession.shared.dataTask(with: request) { _, response, _ in
-                let code = (response as? HTTPURLResponse)?.statusCode
+            URLSession.shared.dataTask(with: request) { data, response, _ in
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let body = String(data: data ?? Data(), encoding: .utf8) ?? ""
                 DispatchQueue.main.async {
-                    if code == 401 || code == 403 { problems.append(check.problem) }
+                    if let problem = check.problem(code, body) { problems.append(problem) }
                     group.leave()
                 }
             }.resume()
