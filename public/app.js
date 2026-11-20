@@ -1171,12 +1171,23 @@ function renderAiPill(status = {}) {
     collections: { strategies: { first: "keep" }, prefs: { first: "remote" } },
     read() {
       const strategies = {};
-      for (const s of state.saved) strategies[s.id] = { name: s.name, code: s.code, created: s.created || 0 };
+      // A strategy is plain-English rules now; ones saved before that hold code instead.
+      for (const s of state.saved) {
+        const out = { name: s.name, created: s.created || 0 };
+        if (typeof s.rules === "string") out.rules = s.rules;
+        if (typeof s.code === "string") out.code = s.code;
+        strategies[s.id] = out;
+      }
       const prefs = { watchlist: state.watchlist, alerts: state.alerts, portfolio: { ...portfolio }, chat: state.chat.slice(-60) };
       return { strategies, prefs: JSON.parse(JSON.stringify(prefs)) };
     },
     clean(col, v, id) {
-      if (col === "strategies") return /^[\w-]{1,64}$/.test(id) && v && typeof v.name === "string" && v.name.length <= 120 && typeof v.code === "string" && v.code.length <= 60000 && num(v.created) ? v : null;
+      if (col === "strategies") {
+        const text = (t) => t === undefined || (typeof t === "string" && t.length <= 60000);
+        return /^[\w-]{1,64}$/.test(id) && v && typeof v.name === "string" && v.name.length <= 120 && num(v.created)
+          && text(v.rules) && text(v.code) && (typeof v.rules === "string" || typeof v.code === "string")
+          ? { name: v.name, created: v.created, ...(v.rules !== undefined && { rules: v.rules }), ...(v.code !== undefined && { code: v.code }) } : null;
+      }
       if (col === "prefs") return Object.hasOwn(CHECK, id) && CHECK[id](v) ? v : null;
       return null;
     },
