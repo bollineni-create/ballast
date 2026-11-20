@@ -2,10 +2,10 @@
 
 <h1 align="center">Ballast</h1>
 
-<p align="center"><b>Keep your portfolio steady. Backtest strategies on real price history, get rebalancing advice, and rehearse on an Alpaca paper account.</b><br>
+<p align="center"><b>Keep your portfolio steady. Describe a strategy in plain English, backtest it on live data from the world's major markets, get rebalancing advice, and rehearse on an Alpaca paper account.</b><br>
 A Mac app that keeps itself up to date. Private: only people with access to this repository can see or download it.</p>
 
-Describe a trading idea in plain English, read and edit the code it produces, and backtest it on every daily bar the market has. The Rebalance tab tells you which trades bring your holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money), so you can see how a strategy behaves before risking anything.
+Describe a trading idea in plain English ("buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average", "60/40 stocks and bonds, rebalanced quarterly") and Ballast turns it into short rule sentences you can read, edit and backtest on every daily bar the market has. There is no code: the rules themselves are the strategy. The Rebalance tab tells you which trades bring your holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money), so you can see how a strategy behaves before risking anything.
 
 ## Install it on a Mac
 
@@ -52,47 +52,51 @@ Opened without its server (for example `public/index.html` straight from disk), 
 
 ### Market data
 
-Live data works out of the box, with no API keys:
+Live data works out of the box, with no API keys, for the major markets:
 
-| Symbols | Example | Source |
+| Markets | Examples | Source |
 |---|---|---|
-| Stocks, ETFs | `AAPL`, `SPY`, `QQQ` | Yahoo Finance public chart endpoint |
-| Indices | `^GSPC`, `^IXIC` | Yahoo Finance |
-| Crypto pairs | `BTC-USD`, `ETH-USD`, `SOL-USD` | Coinbase Exchange public API |
+| US stocks and ETFs | `AAPL`, `SPY`, `TLT` | Yahoo Finance |
+| World indices | `^GSPC`, `^VIX`, `^N225`, `^FTSE`, `^GDAXI`, `^HSI`, `^NSEI` | Yahoo Finance |
+| Other exchanges | `7203.T` Tokyo, `SAP.DE` Frankfurt, `SHEL.L` London, `0700.HK` Hong Kong, `RELIANCE.NS` India, `BHP.AX` Sydney, `SHOP.TO` Toronto | Yahoo Finance |
+| Currencies and futures | `EURUSD=X`, `DX-Y.NYB`, `GC=F` gold, `CL=F` oil | Yahoo Finance |
+| Crypto pairs | `BTC-USD`, `ETH-USD` | Coinbase Exchange public API |
 
-The Yahoo Finance endpoint is unofficial. It works without a key, but it can rate-limit or change without notice, and stock quotes may be delayed. For an official stock feed, create a free [Alpaca](https://alpaca.markets) account and start the server with its keys:
+**Browse markets** lists the common ones by region with live quotes, and plain names work anywhere a symbol does: Toyota, gold, the Nikkei, bonds, bitcoin. Rules can read any market (`price of ^VIX`, `200-day SMA of SPY`), so one strategy can trade one market using signals from another. Each market's indicators use its own trading days, and prices stay in each market's currency (no FX conversion; Ballast says so when a test mixes currencies). It also warns when a series has a one-day jump that looks like a provider data error.
+
+The Yahoo Finance endpoint is unofficial. It works without a key, but it can rate-limit or change without notice, and quotes may be delayed. For an official US stock feed, create a free [Alpaca](https://alpaca.markets) account and start the server with its keys:
 
 ```bash
 ALPACA_API_KEY_ID=... ALPACA_API_SECRET_KEY=... npm start
 ```
 
-That switches stocks to Alpaca's free real-time IEX feed. If you have a paid Alpaca data plan, set `ALPACA_FEED=sip` for consolidated quotes from all US exchanges. Crypto always comes from Coinbase.
+That switches US stocks to Alpaca's free real-time IEX feed. If you have a paid Alpaca data plan, set `ALPACA_FEED=sip` for consolidated quotes from all US exchanges. Crypto always comes from Coinbase.
 
-Backtests default to **Max** history, meaning every daily bar the source has: for example AAPL from 1980, SPY from 1993, the S&P 500 index (`^GSPC`) from 1927, and BTC-USD on Coinbase from 2015. Alpaca stock history starts in 2016. Use the History menu to limit a test to 1, 3, 5, 10 or 20 years. Charts switch to a log scale when prices span more than 10x.
+Backtests default to **Max** history, meaning every daily bar the source has: for example AAPL from 1980, SPY from 1993, the S&P 500 index (`^GSPC`) from 1927, the Nikkei from 1965, and BTC-USD on Coinbase from 2015. A test that uses several markets starts when all of them have data. Use the History menu to limit a test to 1, 3, 5, 10 or 20 years. Charts switch to a log scale when prices span more than 10x.
 
 Yahoo prices are adjusted for splits but not dividends, so buy & hold and strategy returns leave out dividend income. Index symbols like `^GSPC` are price indices with no dividends at all.
 
 The Monitor tab polls quotes every 2 to 60 seconds and updates the current day's bar, so paper strategies react to intraday prices. A strategy's entry and exit rules act at most once per daily bar, while stop losses and take profits can trigger at any update.
 
-### Optional: AI strategy builder
+### Plain-English strategies
 
-Without an API key, plain-English prompts go to a built-in builder that understands common setups: SMA/EMA crossovers, RSI, Bollinger Bands, MACD, breakouts, stop losses and take profits.
+Ballast's built-in parser reads a wide range of phrasing with no API key: moving-average and EMA crosses, golden/death crosses, RSI, Bollinger Bands, MACD, breakouts, new highs, drawdowns from a high, percent moves over N days, up/down streaks, volume, conditions on other markets, stop losses, take profits, trailing stops, time limits and position sizes, plus portfolios (fixed weights, momentum rotation, risk-off switches, rebalancing schedules and drift bands). Follow-ups like "add a 10% trailing stop" or "use QQQ instead" edit the current rules.
 
-To have Claude write strategies from any description, and edit existing ones, start the server with an Anthropic API key:
+To have Claude read any description, start the server with an Anthropic API key:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
 
-Requests use `claude-opus-5-5` with server-side refusal fallback enabled. If a request fails, the app falls back to the built-in builder.
+Claude (`claude-opus-5-5`, with server-side refusal fallback) translates the idea into rule lines, and Ballast's parser checks every line before it reaches the page; if Claude writes something the parser can't read, it is asked to fix it once, then the built-in parser takes over.
 
 ## Features
 
-- **Build & Test**: chat-style strategy builder, editable code, and a backtest on daily bars. The backtest reports total return vs. buy & hold, CAGR, max drawdown, Sharpe, win rate, profit factor and time in market, with an equity curve, a price chart with trade markers, and a trade list you can export as CSV.
+- **Build & Test**: chat-style strategy builder, editable plain-English rules checked as you type, and a backtest on daily bars from one or more markets. It reports total return vs. buy & hold, CAGR, max drawdown, Sharpe, win rate, profit factor and time invested, with an equity curve, a price chart with trade markers (or holdings over time for portfolios), and a trade or order list you can export as CSV.
 - **Data**: live market history by default. You can also import a CSV with `Date` and `Close` columns (`Open`, `High`, `Low` and `Volume` are optional), or switch to a simulated series for offline use.
 - **Rebalance**: enter your holdings, cash and target percentages. Prices refresh every 15 seconds. When any holding drifts more than your band (5 percentage points by default) from its target, you get a notification and a suggested list of trades that brings every holding back to target. Sells come first so they fund the buys, and you can set a cash buffer, a minimum trade size, and whole or fractional shares. Copy the list or export it as CSV, place the trades at your broker yourself, then click **I placed these trades** to update your holdings. The rebalancer only gives advice and never places orders.
 - **Monitor**: a watchlist with live quotes, price alerts (with browser notifications), paper-trading strategies with live P&L, and an activity log. A simulated feed is available for when markets are closed or you're offline.
-- **Library**: starter strategies plus the ones you save.
+- **Library**: starter strategies across US, European, Japanese, commodity and crypto markets, plus the ones you save.
 
 Saved strategies, the watchlist, alerts and paper positions are stored in your browser's local storage.
 
@@ -155,28 +159,33 @@ The report compares three portfolios that start from the same money on the same 
 
 If all of that holds, the next step is a small real-money amount, but only once your employer's rules allow automated trading.
 
-## Strategy code format
+## Rule language
 
-A strategy is the body of a function that receives `data` and `ta` and returns entry and exit rules:
+A strategy is a few lines of English. Ballast always shows rules in this canonical form, and reads it back exactly.
 
-```js
-const fast = ta.ema(data.close, 9);
-const slow = ta.ema(data.close, 21);
-
-return {
-  entry: (i) => ta.crossover(fast, slow, i),
-  exit: (i) => ta.crossunder(fast, slow, i),
-  stopLoss: 0.03,   // optional, 3% below entry
-  takeProfit: 0.06, // optional, 6% above entry
-};
+```
+Trade 7203.T
+Buy when drawdown from 252-day high is at least 10% and price of ^N225 is above 200-day SMA of ^N225
+Sell when price crosses above 50-day SMA
+Stop loss 5%
+Trailing stop 8%
 ```
 
-- `data` has aligned arrays: `time`, `open`, `high`, `low`, `close`, `volume`.
-- Rules are checked at each bar's close. Orders fill at the next bar's open. Stops and targets are checked against each bar's high and low.
-- Positions are long-only and all-in. Fees and slippage are set in basis points.
-- Helpers: `ta.sma`, `ta.ema`, `ta.rsi`, `ta.stdev`, `ta.roc`, `ta.bollinger`, `ta.macd`, `ta.atr`, `ta.highest`, `ta.lowest`, `ta.crossover`, `ta.crossunder`.
+```
+Rotate among SPY, EFA, EEM, GLD, TLT
+Hold the top 2 by 126-day return
+Only hold assets whose 126-day return is above 0
+When price of ^VIX is above 35, hold cash instead
+Rebalance monthly
+```
 
-Strategy code runs in your browser, so review AI-generated code before running it.
+- **Buy/sell rules**: `Trade SYM, …` (optional; otherwise the Market field), `Buy when …`, `Sell when …`, `Stop loss N%`, `Take profit N%`, `Trailing stop N%`, `Sell after N days`, `Position size N%`. Long only; with several traded symbols each gets an equal slice unless a position size is set.
+- **Portfolios**: `Hold N% SYM, …` or `Rotate among …` with `Hold the top N by <value>`, then optionally `When …, hold SYM instead` (checked daily), `Rebalance daily|weekly|monthly|quarterly|yearly` and `Rebalance when any holding drifts N% from its target`.
+- **Conditions**: `is above / below / at least / at most`, `crosses above / below`, `is more than / at least / less than N% above / below`, `price closes up / down N days in a row`, joined with `and`, `or`, parentheses and `not (…)`.
+- **Values**: price, open, high, low, volume, numbers, `N-day SMA / EMA / RSI / ATR / return / volatility / high / low / average volume`, `drawdown from N-day high`, `upper / middle / lower Bollinger Band (N, K)`, `MACD line / signal line / histogram (F, S, G)`, `… N days ago`; add `of SYM` to read another market. `N-day high` and `low` are the N days before today, so "price is above 55-day high" is a breakout.
+- Rules are checked at each bar's close and orders fill at the next bar's open. Stops and targets are checked against each bar's high and low. Fees and slippage are set in basis points.
+
+`npm test` runs the parser (free-form phrasings and exact round-trips of the canonical form) and the engine, including a check that single-market rules give exactly the same results as Ballast's earlier code-based engine.
 
 ## Disclaimer
 

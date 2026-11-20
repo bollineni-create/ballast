@@ -57,9 +57,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await getQuotes(symbols));
     }
     if (url.pathname === "/api/generate" && req.method === "POST") {
-      const { prompt, currentCode } = await readJson(req);
+      const { prompt, currentRules, currentCode } = await readJson(req);
       if (!prompt || typeof prompt !== "string") return send(res, 400, { error: "prompt is required" });
-      return send(res, 200, await generateStrategy(prompt, currentCode));
+      return send(res, 200, await generateStrategy(prompt, currentRules ?? currentCode));
     }
 
     const file = path.normalize(path.join(publicDir, url.pathname === "/" ? "index.html" : url.pathname));

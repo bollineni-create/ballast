@@ -10,6 +10,16 @@ permissions:
   actions: read # the self-update check reads earlier builds
 
 jobs:
+  test:
+    # Parser, rule round-trips and backtest engine (including parity with the original code engine).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm test
+
   mac-app:
     # Builds the self-contained Mac app and publishes Ballast.dmg as a run artifact
     # (only people with access to this repository can download it).

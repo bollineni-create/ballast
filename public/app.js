@@ -1,9 +1,13 @@
 import { simulatedBars, parseCSV, toSeries, nextBar, rng } from "./lib/data.js";
-import { runBacktest, compileStrategy } from "./lib/backtest.js";
+import { compileStrategy } from "./lib/backtest.js";
 import { lineChart } from "./lib/chart.js";
-import { LIBRARY, templateStrategy } from "./lib/templates.js";
 import { analyze, plan } from "./lib/rebalance.js";
 import { isCrypto, coinbaseHistory, coinbaseQuote } from "./lib/coinbase.js";
+import { parseStrategy } from "./lib/parse.js";
+import { summarize } from "./lib/spec.js";
+import { localStrategy } from "./lib/builder.js";
+import { backtestSpec, neededSymbols, signalRules } from "./lib/engine.js";
+import { MARKETS, resolveSymbol, nameOf } from "./lib/markets.js";
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -32,6 +36,23 @@ const state = {
   activity: store.get("activity", []),
 };
 
+// Starter strategies, written the way people describe them. Each is read by the
+// built-in parser at load, so they also show what the rule language understands.
+const LIBRARY = [
+  { tag: "Trend", name: "Golden cross on the S&P 500", prompt: "Buy SPY on a golden cross, sell on a death cross" },
+  { tag: "Mean reversion", name: "Nasdaq RSI(2) dip buyer", prompt: "Buy QQQ when RSI(2) is below 10, sell when RSI(2) is above 70, 5% stop loss" },
+  { tag: "Cross-market", name: "Buy fear: VIX above 30", prompt: "Buy QQQ when the VIX closes above 30, sell after 20 days, 8% stop" },
+  { tag: "Portfolio", name: "60/40 stocks and bonds", prompt: "60/40 stocks and bonds, rebalanced quarterly" },
+  { tag: "Risk-off", name: "200-day trend filter", prompt: "Hold SPY when it's above its 200 day average, otherwise bonds" },
+  { tag: "Rotation", name: "Global momentum rotation", prompt: "Each month hold the top 2 of SPY, EFA, EEM, GLD and TLT by 6-month momentum, only if it's positive" },
+  { tag: "Japan", name: "Nikkei pullback", prompt: "Buy the Nikkei when it is more than 5% below its 50-day SMA and RSI is below 35, sell when RSI is above 60" },
+  { tag: "Europe", name: "SAP trend, DAX filter", prompt: "Buy SAP when the 20 EMA crosses above the 50 EMA and the DAX is above its 200 day average, sell when the 20 EMA crosses below the 50 EMA, 12% trailing stop" },
+  { tag: "Commodities", name: "Gold on dollar weakness", prompt: "Buy gold when the dollar falls 3% in a month, sell after 3 months" },
+  { tag: "Crypto", name: "Bitcoin momentum", prompt: "Buy bitcoin when it crosses above its 50 day average and the 50 day average is above the 200 day average, sell when it crosses below the 50 day average, 15% trailing stop" },
+  { tag: "Breakout", name: "Turtle-style breakout", prompt: "Buy when price closes above the prior 55-day high, sell on a close below the prior 20-day low" },
+  { tag: "Global", name: "World markets, equal weight", prompt: "Equal weight SPY, ^N225, ^GDAXI, ^FTSE and GC=F, rebalance when any holding drifts 5%" },
+].map((item) => ({ ...localStrategy(item.prompt), ...item }));
+
 // ---------- tabs ----------
 document.querySelectorAll(".tab").forEach((tab) =>
   tab.addEventListener("click", () => {
@@ -39,7 +60,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
     document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${tab.dataset.view}`));
     if (tab.dataset.view === "monitor") renderMonitor();
     if (tab.dataset.view === "rebalance") { renderRebalance(); loadAutopilot(); }
-    if (tab.dataset.view === "build" && lastResult) renderResults(lastResult.result, lastResult.data);
+    if (tab.dataset.view === "build" && lastResult) renderResults(lastResult);
   })
 );
 
@@ -47,7 +68,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
 function renderChat() {
   const log = $("#chat-log");
   if (!state.chat.length) {
-    log.innerHTML = `<div class="msg">Describe a trading idea in plain English. I'll turn it into rules you can read, edit, and backtest.\n\nTry: "Buy when the 20 EMA crosses above the 50 EMA, 4% stop loss".</div>`;
+    log.innerHTML = `<div class="msg">Describe a trading idea in plain English, for any major market. I'll turn it into rules you can read, edit and backtest. No code.\n\nTry: "Buy the Nikkei when it's 5% below its 50-day average and the VIX is under 25", or "60/40 stocks and bonds, rebalanced quarterly".</div>`;
     return;
   }
   log.innerHTML = state.chat
@@ -64,14 +85,20 @@ function pushChat(msg) {
 }
 
 async function generate(prompt, refine) {
-  const body = { prompt, currentCode: refine ? $("#code").value : undefined };
+  const current = refine ? rulesText() : undefined;
+  if (!state.server) return localStrategy(prompt, current);
   try {
-    const res = await fetch("api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("api/generate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      // currentCode: older servers read the current strategy from this field
+      body: JSON.stringify({ prompt, currentRules: current, currentCode: current }),
+    });
     if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-    return await res.json();
+    const out = await res.json();
+    // A server from before plain-English rules answers with code: build locally instead.
+    return typeof out.rules === "string" || out.rules === null ? out : localStrategy(prompt, current);
   } catch {
-    // Server unreachable (e.g. index.html opened directly): build locally.
-    return { ...templateStrategy(prompt), source: "template" };
+    return localStrategy(prompt, current);
   }
 }
 
@@ -84,16 +111,17 @@ $("#chat-form").addEventListener("submit", async (e) => {
   btn.textContent = "Thinking…";
   pushChat({ role: "user", text: prompt });
   $("#chat-input").value = "";
-  const out = await generate(prompt, $("#chat-refine").checked);
+  const out = await generate(prompt, $("#chat-refine").checked && rulesText().trim());
   btn.disabled = false;
-  btn.textContent = "Generate";
-  loadStrategy(out);
+  btn.textContent = "Build";
   if (state.ai && out.source !== "ai") fetchJson("api/status").then((s) => { state.ai = s.ai; renderAiPill(s); }, () => {});
-  pushChat({
-    role: "assistant",
-    text: `${out.name}\n\n${out.explanation}`,
-    meta: [out.source === "ai" ? "Generated by Claude" : "Built-in builder", out.warning].filter(Boolean).join(" · "),
-  });
+  const meta = [out.source === "ai" ? "Written by Claude, checked by Ballast's parser" : "Built-in parser", out.warning].filter(Boolean).join(" · ");
+  if (!out.rules) {
+    pushChat({ role: "assistant", text: `I couldn't turn that into rules yet.\n\n${out.explanation}`, meta });
+    return;
+  }
+  loadStrategy(out);
+  pushChat({ role: "assistant", text: `${out.name}\n\n${out.explanation}${out.notes?.length ? `\n\nNote: ${out.notes.join(" ")}` : ""}`, meta });
   $("#chat-refine").checked = true;
   runAndShow();
 });
@@ -102,23 +130,56 @@ $("#chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("#chat-form").requestSubmit();
 });
 
-// ---------- build: editor + backtest ----------
-function loadStrategy({ name, code }) {
-  $("#strategy-name").value = name;
-  $("#code").value = code;
-  store.set("draft", { name, code });
+// ---------- build: rules editor ----------
+const rulesText = () => $("#rules").value;
+
+function loadStrategy({ name, rules }) {
+  $("#strategy-name").value = name || "Untitled strategy";
+  $("#rules").value = rules || "";
+  store.set("draft", { name: $("#strategy-name").value, rules: rulesText() });
+  checkRules();
 }
 
-$("#code").addEventListener("input", () => store.set("draft", { name: $("#strategy-name").value, code: $("#code").value }));
-$("#code").addEventListener("keydown", (e) => {
-  if (e.key === "Tab") {
-    e.preventDefault();
-    const t = e.target, s = t.selectionStart;
-    t.setRangeText("  ", s, t.selectionEnd, "end");
+// Reads the rules as you type and shows how Ballast understood them.
+let parsed = null;
+function checkRules() {
+  const box = $("#rules-check");
+  try {
+    const r = parseStrategy(rulesText());
+    parsed = r;
+    const warn = [...r.notes, ...r.unparsed.map((u) => `Not understood, ignored: "${u}"`)];
+    box.className = `rules-check ${warn.length ? "warn" : "ok"}`;
+    box.innerHTML = `<strong>${r.spec.kind === "signal" ? "Buy/sell rules" : "Portfolio"}</strong> · ${esc(summarize(r.spec))}${warn.map((w) => `<div>${esc(w)}</div>`).join("")}`;
+    syncSymbolField(r.spec);
+  } catch (e) {
+    parsed = null;
+    box.className = "rules-check bad";
+    box.textContent = e.message;
   }
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runAndShow();
+}
+
+// The Market field is the asset traded by rules without a "Trade" line; for rules that
+// name their own assets it shows them read-only.
+function syncSymbolField(spec) {
+  const own = spec.kind === "allocate" || spec.symbols?.length;
+  const f = $("#symbol");
+  if (own && !state.csv) f.value = spec.symbols.join(", ");
+  f.disabled = Boolean(own) || Boolean(state.csv);
+  f.title = own ? "Set by the rules (Trade, Hold or Rotate line). Edit the rules to change it." : "The asset these rules trade. Type a ticker or a name like Toyota, gold or Nikkei.";
+  $("#browse-markets").textContent = own ? "Markets" : "Browse markets";
+}
+
+let checkTimer = null;
+$("#rules").addEventListener("input", () => {
+  store.set("draft", { name: $("#strategy-name").value, rules: rulesText() });
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(checkRules, 250);
+});
+$("#rules").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); checkRules(); runAndShow(); }
 });
 
+// ---------- market data ----------
 async function fetchJson(url) {
   const res = await fetch(url);
   const body = await res.json().catch(() => ({}));
@@ -126,9 +187,9 @@ async function fetchJson(url) {
   return body;
 }
 
-// Without the local server (Ballast opened as a plain website) live data comes straight
-// from Coinbase, which allows it for crypto pairs. Stock prices need the server.
-const NEEDS_APP = "Live stock prices need the Ballast Mac app (or npm start). On the website, live data covers crypto pairs like BTC-USD";
+// Without a Ballast server (index.html opened from disk) live data comes straight from
+// Coinbase, which allows it for crypto pairs. Everything else needs the server.
+const NEEDS_APP = "Live stock, index, FX and futures prices need the Ballast server (the website, the Mac app or npm start). Opened from disk, live data covers crypto pairs like BTC-USD";
 
 async function fetchHistory(symbol, years) {
   if (state.server) return fetchJson(`api/history?symbol=${encodeURIComponent(symbol)}&years=${years}`);
@@ -157,46 +218,65 @@ async function liveHistory(symbol, years = 3) {
   return historyCache.get(key);
 }
 
-async function currentData() {
-  if (state.csv) {
-    $("#data-note").textContent = `Using imported data: ${state.csv.name} (${state.csv.bars.length} bars, ${day(state.csv.bars[0].time)} → ${day(state.csv.bars.at(-1).time)}).`;
-    return toSeries(state.csv.bars);
+const chosenSymbol = () => resolveSymbol($("#symbol").value.split(",")[0]) || "SPY";
+
+// Loads every symbol the rules need. Returns { bars: { SYM: bars }, note }.
+async function loadData(spec) {
+  const fallback = state.csv ? state.csv.symbol : chosenSymbol();
+  const syms = neededSymbols(spec, fallback);
+  const mode = $("#data-source").value;
+  const years = $("#history").value;
+  const bars = {}, info = [];
+  if (state.csv) bars[state.csv.symbol] = state.csv.bars;
+  const rest = syms.filter((s) => !bars[s]);
+  if (mode === "sim") {
+    for (const s of rest) bars[s] = simulatedBars(s);
+    return { bars, fallback, note: `Simulated daily data for ${rest.join(", ")} (750 bars each; every name gives its own repeatable series).` };
   }
-  const sym = ($("#symbol").value.trim() || "SPY").toUpperCase();
-  if ($("#data-source").value === "live" && !state.server && !isCrypto(sym)) {
-    $("#data-note").textContent = `Showing simulated data for "${sym}". ${NEEDS_APP}, or import a CSV.`;
-    return toSeries(simulatedBars(sym));
+  $("#data-note").textContent = `Loading ${years === "max" ? "full" : `${years}-year`} history for ${rest.join(", ")}…`;
+  const results = await Promise.allSettled(rest.map((s) => liveHistory(s, years)));
+  const failed = [];
+  results.forEach((r, k) => {
+    const s = rest[k];
+    if (r.status === "fulfilled") {
+      bars[s] = r.value.bars;
+      info.push(`${s} ${r.value.name && r.value.name !== s ? `(${r.value.name}) ` : ""}from ${r.value.source}, ${day(r.value.bars[0].time)} → ${day(r.value.bars.at(-1).time)}, ${r.value.currency || ""}`.trim());
+      if (r.value.warning) info.push(r.value.warning);
+    } else failed.push(`${s}: ${r.reason.message}`);
+  });
+  if (failed.length) {
+    throw new Error(`Couldn't load market data for ${failed.join("; ")}. Check the symbol (AAPL, ^N225, 7203.T, EURUSD=X, GC=F, BTC-USD) or switch Data to Simulated.`);
   }
-  if ($("#data-source").value === "live") {
-    const years = $("#history").value;
-    $("#data-note").textContent = `Loading ${years === "max" ? "full" : `${years}-year`} history for ${sym}…`;
-    try {
-      const h = await liveHistory(sym, years);
-      $("#data-note").textContent = `${h.name} (${h.symbol}): ${h.bars.length.toLocaleString()} daily bars, ${day(h.bars[0].time)} → ${day(h.bars.at(-1).time)}, from ${h.source}. Prices in ${h.currency}.${h.warning ? ` ${h.warning}` : ""}`;
-      return toSeries(h.bars);
-    } catch (err) {
-      throw new Error(`Couldn't load market data for ${sym}: ${err.message}. Check the symbol (stocks like AAPL, indices like ^GSPC, crypto like BTC-USD) or switch Data to Simulated.`);
-    }
+  // Flag one-day jumps that look like data errors (bad splits, redenominations) rather than markets.
+  for (const sym of rest) {
+    if (isCrypto(sym) || /^\^VX|^\^VIX/.test(sym)) continue; // crypto and volatility indices really do move this much
+    const b = bars[sym];
+    const k = b.findIndex((x, i) => i && (x.close / b[i - 1].close > 1.8 || x.close / b[i - 1].close < 0.45));
+    if (k > 0) info.push(`⚠️ ${sym} moves ${((b[k].close / b[k - 1].close - 1) * 100).toFixed(0)}% on ${day(b[k].time)}, which may be a data error from the provider; results before that date can be off`);
   }
-  $("#data-note").textContent = `Using simulated daily data for "${sym}" (750 bars). Each symbol name produces a different repeatable series. History length applies to live data only.`;
-  return toSeries(simulatedBars(sym));
+  const currencies = new Set(results.map((r) => r.value?.currency).filter(Boolean));
+  const fx = currencies.size > 1 ? ` Mixed currencies (${[...currencies].join(", ")}): each asset's returns are in its own currency, with no FX conversion.` : "";
+  return { bars, fallback, note: `${state.csv ? `Imported ${state.csv.name} as ${state.csv.symbol}. ` : ""}${info.join(" · ")}.${fx}` };
 }
 
 $("#csv").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
-    state.csv = { name: file.name, bars: parseCSV(await file.text()) };
-    $("#symbol").value = file.name.replace(/\.csv$/i, "").toUpperCase().slice(0, 12);
+    const symbol = file.name.replace(/\.csv$/i, "").toUpperCase().replace(/[^A-Z0-9.\-^=]/g, "").slice(0, 12) || "CSV";
+    state.csv = { name: file.name, symbol, bars: parseCSV(await file.text()) };
+    $("#symbol").value = symbol;
     $("#symbol").disabled = true;
-    $("#data-source").disabled = true;
-    $("#history").disabled = true;
     runAndShow();
   } catch (err) {
     showError(err.message);
   }
 });
-$("#symbol").addEventListener("change", runAndShow);
+$("#symbol").addEventListener("change", () => {
+  const s = resolveSymbol($("#symbol").value);
+  if (s) $("#symbol").value = s;
+  runAndShow();
+});
 $("#data-source").addEventListener("change", runAndShow);
 $("#history").addEventListener("change", () => {
   store.set("history", $("#history").value);
@@ -212,72 +292,113 @@ let lastResult = null;
 let runSeq = 0;
 async function runAndShow() {
   showError("");
+  checkRules();
+  if (!parsed) return;
   const seq = ++runSeq;
   try {
-    const data = await currentData();
+    const { bars, fallback, note } = await loadData(parsed.spec);
     if (seq !== runSeq) return; // a newer run started while data was loading
-    const result = runBacktest(data, $("#code").value, {
+    $("#data-note").textContent = note;
+    const result = backtestSpec(parsed.spec, bars, {
+      fallbackSymbol: fallback,
       capital: Number($("#capital").value) || 10000,
-      feeBps: (Number($("#cost").value) || 0) / 2,
-      slippageBps: (Number($("#cost").value) || 0) / 2,
+      costBps: Number($("#cost").value) || 0,
     });
-    lastResult = { result, data };
-    renderResults(result, data);
+    lastResult = result;
+    renderResults(result);
   } catch (err) {
-    showError(err.message);
+    if (seq === runSeq) showError(err.message);
   }
 }
 $("#run").addEventListener("click", runAndShow);
 
-function renderResults({ equity, trades, metrics: m }, data) {
+function renderResults(r) {
+  const m = r.metrics;
   $("#results").hidden = false;
   const sign = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+  const pct = (v, d = 1) => (Number.isFinite(v) ? `${v.toFixed(d)}%` : "—");
   const cards = [
-    ["Total return", `${m.totalReturn.toFixed(1)}%`, sign(m.totalReturn)],
-    ["Buy & hold", `${m.buyHold.toFixed(1)}%`, sign(m.buyHold)],
-    ["CAGR", `${m.cagr.toFixed(1)}%`, sign(m.cagr)],
-    ["Max drawdown", `${m.maxDrawdown.toFixed(1)}%`, "neg"],
+    ["Total return", pct(m.totalReturn), sign(m.totalReturn)],
+    [r.benchLabel, pct(m.buyHold), sign(m.buyHold)],
+    ["CAGR", pct(m.cagr), sign(m.cagr)],
+    ["Max drawdown", pct(m.maxDrawdown), "neg"],
     ["Sharpe", m.sharpe.toFixed(2), sign(m.sharpe)],
-    ["Trades", m.trades, ""],
-    ["Win rate", `${m.winRate.toFixed(0)}%`, ""],
-    ["Profit factor", Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : "∞", ""],
-    ["Avg trade", `${m.avgTrade.toFixed(2)}%`, sign(m.avgTrade)],
-    ["Time in market", `${m.exposure.toFixed(0)}%`, ""],
+    [r.kind === "signal" ? "Trades" : "Orders", m.trades, ""],
+    ...(r.kind === "signal" ? [
+      ["Win rate", pct(m.winRate, 0), ""],
+      ["Profit factor", Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : m.profitFactor === Infinity ? "∞" : "—", ""],
+      ["Avg trade", pct(m.avgTrade, 2), sign(m.avgTrade)],
+    ] : []),
+    ["Time invested", pct(m.exposure, 0), ""],
     ["Final equity", money(m.finalEquity), ""],
   ];
-  $("#metrics").innerHTML = cards.map(([l, v, c]) => `<div class="metric"><div class="label">${l}</div><div class="value ${c}">${v}</div></div>`).join("");
+  $("#metrics").innerHTML = cards.map(([l, v, c]) => `<div class="metric"><div class="label">${esc(l)}</div><div class="value ${c}">${v}</div></div>`).join("");
+  $("#bench-legend").textContent = r.benchLabel;
+  // Spot rules that fight each other: buy and sell both true, so it churns daily.
+  const quick = r.kind === "signal" && r.trades.length >= 30 && r.trades.filter((t) => t.bars <= 1 && t.reason === "signal").length / r.trades.length > 0.5;
+  $("#result-note").hidden = !quick;
+  $("#result-note").textContent = quick ? "Most trades last a single day: the buy and sell rules are often true at the same time, so the strategy buys and sells again the next day. Try a sell rule that can't overlap the buy rule (e.g. sell when price crosses above the 50-day SMA, rather than is above it)." : "";
 
-  const capital = equity[0];
-  const bh = data.close.map((c) => (capital * c) / data.close[0]);
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   lineChart($("#equity-chart"), {
-    time: data.time,
+    time: r.time,
     series: [
-      { values: bh, color: css("--muted"), label: "Buy & hold", width: 1, dash: [4, 3] },
-      { values: equity, color: css("--accent"), label: "Strategy", width: 2 },
+      { values: r.bench, color: css("--muted"), label: r.benchLabel, width: 1, dash: [4, 3] },
+      { values: r.equity, color: css("--accent"), label: "Strategy", width: 2 },
     ],
     format: (v) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)),
   });
-  const markers = trades.flatMap((t) => [
-    { index: t.entryIndex, value: data.low[t.entryIndex], type: "buy" },
-    ...(t.reason === "end of data" ? [] : [{ index: t.exitIndex, value: data.high[t.exitIndex], type: "sell" }]),
-  ]);
-  lineChart($("#price-chart"), { time: data.time, series: [{ values: data.close, color: css("--text"), label: "Close", width: 1.25 }], markers });
 
-  $("#trades").innerHTML = `<thead><tr><th>#</th><th>Entry</th><th>Entry price</th><th>Exit</th><th>Exit price</th><th>Bars</th><th>P&amp;L</th><th>Return</th><th>Exit reason</th></tr></thead><tbody>${
-    trades.length
-      ? trades.map((t, k) => `<tr><td>${k + 1}</td><td>${day(t.entryTime)}</td><td>${t.entryPrice.toFixed(2)}</td><td>${day(t.exitTime)}</td><td>${t.exitPrice.toFixed(2)}</td><td>${t.bars}</td><td class="${sign(t.pnl)}">${money(t.pnl)}</td><td class="${sign(t.returnPct)}">${t.returnPct.toFixed(2)}%</td><td>${t.reason}</td></tr>`).join("")
-      : `<tr><td colspan="9" class="empty">No trades. The entry rule never fired on this data.</td></tr>`
-  }</tbody>`;
+  const palette = ["--accent", "--up", "--down", "--text", "--muted"].map(css).concat(["#7c3aed", "#d97706", "#0284c7"]);
+  if (r.kind === "signal") {
+    const sym = r.traded[0];
+    $("#second-title").textContent = r.traded.length > 1 ? `${sym} price & trades (first of ${r.traded.length})` : `${sym} price & trades`;
+    $("#second-legend").innerHTML = `<i style="background:var(--up)"></i>Buy <i style="background:var(--down)"></i>Sell`;
+    const markers = r.trades.filter((t) => t.symbol === sym).flatMap((t) => [
+      { index: t.entryIndex, value: r.prices[sym][t.entryIndex], type: "buy" },
+      ...(t.reason === "end of data" ? [] : [{ index: t.exitIndex, value: r.prices[sym][t.exitIndex], type: "sell" }]),
+    ]);
+    lineChart($("#price-chart"), { time: r.time, series: [{ values: r.prices[sym], color: css("--text"), label: sym, width: 1.25 }], markers });
+  } else {
+    $("#second-title").textContent = "Holdings over time (% of portfolio)";
+    const syms = Object.keys(r.weightHistory);
+    $("#second-legend").innerHTML = syms.map((s, k) => `<i style="background:${palette[k % palette.length]}"></i>${esc(s)}`).join(" ");
+    lineChart($("#price-chart"), {
+      time: r.time,
+      series: syms.map((s, k) => ({ values: Array.from(r.weightHistory[s]), color: palette[k % palette.length], label: s, width: 1.25 })),
+      format: (v) => `${v.toFixed(0)}%`,
+    });
+  }
+
+  if (r.kind === "signal") {
+    $("#trades-title").textContent = "Trades";
+    const multi = r.traded.length > 1;
+    $("#trades").innerHTML = `<thead><tr><th>#</th>${multi ? "<th>Symbol</th>" : ""}<th>Entry</th><th>Entry price</th><th>Exit</th><th>Exit price</th><th>Days</th><th>P&amp;L</th><th>Return</th><th>Exit reason</th></tr></thead><tbody>${
+      r.trades.length
+        ? r.trades.map((t, k) => `<tr><td>${k + 1}</td>${multi ? `<td>${esc(t.symbol)}</td>` : ""}<td>${day(t.entryTime)}</td><td>${t.entryPrice.toFixed(2)}</td><td>${day(t.exitTime)}</td><td>${t.exitPrice.toFixed(2)}</td><td>${t.bars}</td><td class="${sign(t.pnl)}">${money(t.pnl)}</td><td class="${sign(t.returnPct)}">${t.returnPct.toFixed(2)}%</td><td>${t.reason}</td></tr>`).join("")
+        : `<tr><td colspan="10" class="empty">No trades. The buy rule never fired on this data.</td></tr>`
+    }</tbody>`;
+  } else {
+    $("#trades-title").textContent = "Rebalancing orders";
+    const rows = r.orders.slice(-500);
+    $("#trades").innerHTML = `<thead><tr><th>Date</th><th>Symbol</th><th>Side</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead><tbody>${
+      rows.length
+        ? rows.map((o) => `<tr><td>${day(o.time)}</td><td>${esc(o.symbol)}</td><td class="${o.side === "buy" ? "pos" : "neg"}">${o.side}</td><td>${o.shares.toFixed(4)}</td><td>${o.price.toFixed(2)}</td><td>${money(o.value)}</td></tr>`).join("")
+        : `<tr><td colspan="6" class="empty">No orders. The portfolio never had enough history to start.</td></tr>`
+    }</tbody>${r.orders.length > rows.length ? `<caption class="note">Showing the last ${rows.length} of ${r.orders.length} orders. Export CSV for all.</caption>` : ""}`;
+  }
 }
 
 $("#export-trades").addEventListener("click", () => {
   if (!lastResult) return;
-  const rows = [["entry_date", "entry_price", "exit_date", "exit_price", "shares", "pnl", "return_pct", "reason"]];
-  for (const t of lastResult.result.trades) rows.push([day(t.entryTime), t.entryPrice.toFixed(4), day(t.exitTime), t.exitPrice.toFixed(4), t.shares.toFixed(4), t.pnl.toFixed(2), t.returnPct.toFixed(3), t.reason]);
+  const rows = lastResult.kind === "signal"
+    ? [["symbol", "entry_date", "entry_price", "exit_date", "exit_price", "shares", "pnl", "return_pct", "reason"],
+      ...lastResult.trades.map((t) => [t.symbol, day(t.entryTime), t.entryPrice.toFixed(4), day(t.exitTime), t.exitPrice.toFixed(4), t.shares.toFixed(4), t.pnl.toFixed(2), t.returnPct.toFixed(3), t.reason])]
+    : [["date", "symbol", "side", "shares", "price", "value"],
+      ...lastResult.orders.map((o) => [day(o.time), o.symbol, o.side, o.shares.toFixed(6), o.price.toFixed(4), o.value.toFixed(2)])];
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([rows.map((r) => r.join(",")).join("\n")], { type: "text/csv" }));
-  a.download = `${$("#strategy-name").value.replace(/\W+/g, "_")}_trades.csv`;
+  a.download = `${$("#strategy-name").value.replace(/\W+/g, "_")}_${lastResult.kind === "signal" ? "trades" : "orders"}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -285,23 +406,21 @@ $("#export-trades").addEventListener("click", () => {
 $("#save-strategy").addEventListener("click", () => {
   const name = $("#strategy-name").value.trim() || "Untitled strategy";
   const existing = state.saved.find((s) => s.name === name);
-  if (existing) existing.code = $("#code").value;
-  else state.saved.push({ id: crypto.randomUUID(), name, code: $("#code").value, created: Date.now() });
+  if (existing) { existing.rules = rulesText(); delete existing.code; }
+  else state.saved.push({ id: crypto.randomUUID(), name, rules: rulesText(), created: Date.now() });
   store.set("saved", state.saved);
   renderLibrary();
   flash($("#save-strategy"), "Saved ✓");
 });
 
 $("#deploy-strategy").addEventListener("click", () => {
-  try {
-    compileStrategy($("#code").value)(toSeries(simulatedBars("TEST", 60)));
-  } catch (err) {
-    return showError(err.message);
-  }
-  const symbol = state.csv ? "SPY" : ($("#symbol").value.trim() || "SPY").toUpperCase();
+  checkRules();
+  if (!parsed) return showError("Fix the rules before paper trading them.");
+  if (parsed.spec.kind !== "signal") return showError("Paper trading runs buy/sell rules. For portfolios, use the Rebalance tab and its Alpaca paper autopilot.");
+  const symbol = state.csv ? "SPY" : (parsed.spec.symbols[0] || chosenSymbol());
   const mode = state.csv ? "live" : $("#data-source").value;
-  if (!state.watchlist.includes(symbol)) state.watchlist.push(symbol);
-  state.deployments.push({ id: crypto.randomUUID(), name: $("#strategy-name").value, code: $("#code").value, symbol, capital: 10000, cash: 10000, shares: 0, entryPrice: null, trades: 0, active: true, mode });
+  for (const s of neededSymbols(parsed.spec, symbol)) if (!state.watchlist.includes(s)) state.watchlist.push(s);
+  state.deployments.push({ id: crypto.randomUUID(), name: $("#strategy-name").value, rules: rulesText(), symbol, capital: 10000, cash: 10000, shares: 0, entryPrice: null, trades: 0, active: true, mode });
   persistMonitor();
   log(`Started paper trading "${$("#strategy-name").value}" on ${symbol} (${mode === "live" ? "live data" : "simulated feed"}) with $10,000.`);
   flash($("#deploy-strategy"), "Deployed ✓");
@@ -313,10 +432,51 @@ function flash(btn, text) {
   setTimeout(() => (btn.textContent = orig), 1200);
 }
 
+// ---------- market browser ----------
+let browserGroup = MARKETS[0].group;
+function renderMarkets(quotes = {}) {
+  const g = MARKETS.find((x) => x.group === browserGroup);
+  $("#market-tabs").innerHTML = MARKETS.map((x) => `<button class="tab ${x.group === browserGroup ? "active" : ""}" data-market-group="${esc(x.group)}">${esc(x.group)}</button>`).join("");
+  $("#market-note").textContent = `${g.note[0].toUpperCase()}${g.note.slice(1)}. ${state.server ? "Live quotes." : NEEDS_APP + "."}`;
+  $("#market-list").innerHTML = `<thead><tr><th>Symbol</th><th>Name</th><th>Last</th><th>Change</th><th></th></tr></thead><tbody>${g.items.map(([s, name]) => {
+    const q = quotes[s];
+    return `<tr><td><strong>${esc(s)}</strong></td><td>${esc(name)}</td><td>${q ? q.price.toLocaleString(undefined, { maximumFractionDigits: 4 }) : `<span class="note">…</span>`}</td><td class="${q ? (q.changePct >= 0 ? "pos" : "neg") : ""}">${q ? `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%` : ""}</td><td class="row"><button class="btn small primary" data-use-symbol="${esc(s)}">Use</button><button class="btn small" data-watch-symbol="${esc(s)}">Watch</button></td></tr>`;
+  }).join("")}</tbody>`;
+}
+async function loadMarketQuotes() {
+  const g = MARKETS.find((x) => x.group === browserGroup);
+  renderMarkets();
+  try {
+    const { quotes } = await fetchQuotes(g.items.map(([s]) => s));
+    if (g.group === browserGroup) renderMarkets(quotes);
+  } catch { /* quotes are a nicety; the list still works */ }
+}
+$("#browse-markets").addEventListener("click", () => { $("#markets").showModal(); loadMarketQuotes(); });
+$("#markets-close").addEventListener("click", () => $("#markets").close());
+$("#market-search").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const s = resolveSymbol($("#market-query").value);
+  if (s) useSymbol(s);
+});
+
+// Points the strategy at a symbol: rewrites the Trade line when the rules have one.
+function useSymbol(s) {
+  $("#markets").close();
+  if (parsed?.spec.kind === "signal" && parsed.spec.symbols.length) {
+    $("#rules").value = rulesText().replace(/^trade .*$/im, `Trade ${s}`);
+  } else if (parsed?.spec.kind === "allocate") {
+    pushChat({ role: "assistant", text: `This is a portfolio, so its assets come from its Hold or Rotate line. Edit that line to add ${s} (${nameOf(s)}).` });
+    return;
+  }
+  $("#symbol").value = s;
+  store.set("draft", { name: $("#strategy-name").value, rules: rulesText() });
+  runAndShow();
+}
+
 // ---------- library ----------
 function renderLibrary() {
-  const card = (s, actions) => `<div class="card">${s.tag ? `<span class="tag">${s.tag}</span>` : ""}<h4>${esc(s.name)}</h4><p>${esc(s.explanation || s.prompt || "Saved strategy")}</p><div class="row">${actions}</div></div>`;
-  $("#library").innerHTML = LIBRARY.map((s, i) => card(s, `<button class="btn small primary" data-lib="${i}">Open &amp; test</button>`)).join("");
+  const card = (s, actions) => `<div class="card">${s.tag ? `<span class="tag">${esc(s.tag)}</span>` : ""}<h4>${esc(s.name)}</h4><p>${esc(s.prompt ? `“${s.prompt}”` : s.explanation || "Saved strategy")}</p>${s.rules ? `<pre class="rules-preview">${esc(s.rules)}</pre>` : `<p class="note">Saved as code by an earlier Ballast. Open it to rewrite it in plain English.</p>`}<div class="row">${actions}</div></div>`;
+  $("#library").innerHTML = LIBRARY.filter((s) => s.rules).map((s, i) => card(s, `<button class="btn small primary" data-lib="${i}">Open &amp; test</button>`)).join("");
   $("#saved").innerHTML = state.saved.length
     ? state.saved.map((s) => card(s, `<button class="btn small" data-del="${s.id}">Delete</button><button class="btn small primary" data-open="${s.id}">Open</button>`)).join("")
     : `<p class="empty">Nothing saved yet. Use Save in the editor.</p>`;
@@ -326,16 +486,28 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest("button");
   if (!t) return;
   const openInBuilder = (s) => {
-    loadStrategy(s);
     document.querySelector('.tab[data-view="build"]').click();
+    if (!s.rules) {
+      pushChat({ role: "assistant", text: `"${s.name}" was saved as JavaScript by an earlier version of Ballast. Strategies are plain English now: describe it in the box below and I'll rebuild it.` });
+      return;
+    }
+    state.csv = null;
+    loadStrategy(s);
     runAndShow();
   };
-  if (t.dataset.lib) openInBuilder(LIBRARY[t.dataset.lib]);
+  if (t.dataset.lib) openInBuilder(LIBRARY.filter((s) => s.rules)[t.dataset.lib]);
   if (t.dataset.open) openInBuilder(state.saved.find((s) => s.id === t.dataset.open));
   if (t.dataset.del) {
     state.saved = state.saved.filter((s) => s.id !== t.dataset.del);
     store.set("saved", state.saved);
     renderLibrary();
+  }
+  if (t.dataset.marketGroup) { browserGroup = t.dataset.marketGroup; loadMarketQuotes(); }
+  if (t.dataset.useSymbol) useSymbol(t.dataset.useSymbol);
+  if (t.dataset.watchSymbol) {
+    if (!state.watchlist.includes(t.dataset.watchSymbol)) state.watchlist.push(t.dataset.watchSymbol);
+    persistMonitor();
+    flash(t, "Watching ✓");
   }
 });
 
@@ -445,43 +617,61 @@ function checkAlerts() {
   store.set("alerts", state.alerts);
 }
 
+// Builds a deployment's rules on the current feeds: { time, close, entry, exit, stops } or null if feeds aren't ready.
+function liveRules(d) {
+  if (d.rules) {
+    const { spec } = parseStrategy(d.rules);
+    const bars = {};
+    for (const s of neededSymbols(spec, d.symbol)) {
+      const f = feed(s);
+      if (f.status !== "ready" || f.bars.length < 2) return null;
+      bars[s] = f.bars;
+    }
+    return signalRules(spec, bars, d.symbol);
+  }
+  // Strategies deployed by earlier versions of Ballast as code.
+  const f = feed(d.symbol);
+  if (f.status !== "ready" || f.bars.length < 2) return null;
+  const data = toSeries(f.bars);
+  const strat = compileStrategy(d.code)(data);
+  return { time: data.time, close: data.close, entry: strat.entry, exit: strat.exit, stopLoss: strat.stopLoss, takeProfit: strat.takeProfit };
+}
+
 function stepDeployments() {
   for (const d of state.deployments) {
     d.mode ??= "sim";
     if (!d.active || d.mode !== feedMode()) continue;
-    const f = feed(d.symbol);
-    if (f.status !== "ready" || f.bars.length < 2) continue;
-    const data = toSeries(f.bars);
-    const i = data.close.length - 1;
-    const price = data.close[i];
-    let strat;
+    let r;
     try {
-      strat = compileStrategy(d.code)(data);
+      r = liveRules(d);
     } catch (err) {
       d.active = false;
       log(`⚠️ "${d.name}" stopped: ${err.message}`);
       continue;
     }
+    if (!r) continue;
+    const i = r.time.length - 1;
+    const price = r.close[i], bar = r.time[i];
     // Rule signals act at most once per daily bar; stops and targets can fire any time.
-    const canSignal = d.lastSignalBar !== data.time[i];
+    const canSignal = d.lastSignalBar !== bar;
     if (d.shares > 0) {
-      const stopHit = strat.stopLoss && price <= d.entryPrice * (1 - strat.stopLoss);
-      const targetHit = strat.takeProfit && price >= d.entryPrice * (1 + strat.takeProfit);
-      const exitSignal = canSignal && strat.exit(i);
-      if (stopHit || targetHit || exitSignal) {
+      if (d.lastBar !== bar) { d.barsHeld = (d.barsHeld || 0) + 1; d.lastBar = bar; }
+      d.peak = Math.max(d.peak ?? d.entryPrice, price);
+      const stopHit = r.stopLoss && price <= d.entryPrice * (1 - r.stopLoss);
+      const trailHit = r.trailingStop && price <= d.peak * (1 - r.trailingStop);
+      const targetHit = r.takeProfit && price >= d.entryPrice * (1 + r.takeProfit);
+      const timeHit = canSignal && r.maxHold && d.barsHeld > r.maxHold;
+      const exitSignal = canSignal && r.exit(i);
+      if (stopHit || trailHit || targetHit || timeHit || exitSignal) {
         const pnl = d.shares * (price - d.entryPrice);
         d.cash += d.shares * price;
-        log(`SELL ${d.shares.toFixed(4)} ${d.symbol} @ ${price.toFixed(2)} · "${d.name}" · ${stopHit ? "stop loss" : targetHit ? "take profit" : "exit signal"} · P&L ${money(pnl)}`);
-        d.shares = 0;
-        d.entryPrice = null;
+        const why = stopHit ? "stop loss" : trailHit ? "trailing stop" : targetHit ? "take profit" : timeHit ? "time limit" : "exit signal";
+        log(`SELL ${d.shares.toFixed(4)} ${d.symbol} @ ${price.toFixed(2)} · "${d.name}" · ${why} · P&L ${money(pnl)}`);
+        Object.assign(d, { shares: 0, entryPrice: null, peak: null, barsHeld: 0, lastSignalBar: bar });
         d.trades++;
-        d.lastSignalBar = data.time[i];
       }
-    } else if (canSignal && strat.entry(i)) {
-      d.shares = d.cash / price;
-      d.entryPrice = price;
-      d.cash = 0;
-      d.lastSignalBar = data.time[i];
+    } else if (canSignal && r.entry(i)) {
+      Object.assign(d, { shares: d.cash / price, entryPrice: price, peak: price, cash: 0, barsHeld: 0, lastBar: bar, lastSignalBar: bar });
       log(`BUY ${d.shares.toFixed(4)} ${d.symbol} @ ${price.toFixed(2)} · "${d.name}"`);
     }
   }
@@ -557,7 +747,7 @@ function renderMonitor() {
 
 $("#watch-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const s = $("#watch-symbol").value.trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+  const s = resolveSymbol($("#watch-symbol").value);
   if (s && !state.watchlist.includes(s)) state.watchlist.push(s);
   $("#watch-symbol").value = "";
   persistMonitor();
@@ -624,7 +814,7 @@ $("#feed-toggle").addEventListener("click", () => {
   } else startFeed();
 });
 
-window.addEventListener("resize", () => lastResult && $("#view-build").classList.contains("active") && renderResults(lastResult.result, lastResult.data));
+window.addEventListener("resize", () => lastResult && $("#view-build").classList.contains("active") && renderResults(lastResult));
 
 // ---------- rebalance (advice only: never places orders) ----------
 const portfolio = store.get("portfolio", {
@@ -917,9 +1107,9 @@ setInterval(() => $("#view-rebalance").classList.contains("active") && loadAutop
 // ---------- init ----------
 function renderAiPill(status = {}) {
   const pill = $("#ai-status");
-  pill.textContent = state.ai ? "AI builder: Claude" : status.aiKeyError ? "AI builder: key rejected" : "AI builder: offline templates";
+  pill.textContent = state.ai ? "Builder: Claude + parser" : status.aiKeyError ? "Builder: Claude key rejected" : "Builder: built-in parser";
   pill.classList.toggle("on", state.ai);
-  pill.title = state.ai ? "Strategies are generated by Claude." : status.aiKeyError || (!state.server ? "The Claude strategy builder runs in the Mac app." : state.autopilot ? "Add an Anthropic API key in Ballast > Edit Keys to enable the AI builder." : "This site has no Claude key set, so strategies come from the built-in builder.");
+  pill.title = state.ai ? "Claude turns your words into rules; Ballast's parser checks every rule before it runs." : status.aiKeyError || (!state.server ? "The built-in parser reads your strategy. Claude can read looser descriptions when Ballast runs with an Anthropic key." : state.autopilot ? "Add an Anthropic API key in Ballast > Edit Keys to enable the AI builder." : "This site has no Claude key set, so the built-in parser reads your strategy.");
 }
 
 (async function init() {
@@ -941,7 +1131,8 @@ function renderAiPill(status = {}) {
 
   $("#feed-mode").value = store.get("feedMode", "live");
   $("#history").value = store.get("history", "max");
-  loadStrategy(store.get("draft", LIBRARY[0]));
+  const draft = store.get("draft", null);
+  loadStrategy(draft?.rules ? draft : state.server ? LIBRARY[0] : LIBRARY.find((x) => x.tag === "Crypto"));
   renderChat();
   renderLibrary();
   runAndShow();
