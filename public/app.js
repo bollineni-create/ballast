@@ -674,7 +674,9 @@ function stepDeployments() {
         d.trades++;
       }
     } else if (canSignal && r.entry(i)) {
-      Object.assign(d, { shares: d.cash / price, entryPrice: price, peak: price, cash: 0, barsHeld: 1, lastBar: bar, lastSignalBar: bar });
+      // Leave the fill bar out of the count. The backtest includes it, then sells
+      // on the next session once the count reaches N; paper sells on that session.
+      Object.assign(d, { shares: d.cash / price, entryPrice: price, peak: price, cash: 0, barsHeld: 0, lastBar: bar, lastSignalBar: bar });
       log(`BUY ${d.shares.toFixed(4)} ${d.symbol} @ ${price.toFixed(2)} · "${d.name}"`);
     }
   }
