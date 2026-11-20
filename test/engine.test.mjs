@@ -101,3 +101,19 @@ test("portfolios only trade a market on days it is open", () => {
   const bDays = new Set(B.map((b) => b.time));
   assert.ok(r.orders.filter((o) => o.symbol === "BBB").every((o) => bDays.has(o.time)));
 });
+
+test("buys never spend cash a pending sell on a closed market hasn't raised yet", () => {
+  // Switch from BBB to AAA; BBB is closed on the rebalance day, so AAA can only be bought after BBB sells.
+  const n = 80;
+  // BBB leads first, then AAA; BBB only trades one day in four, so the switch's sell waits.
+  const A = series(Array.from({ length: n }, (_, i) => (i < 40 ? 100 - i * 0.2 : 92 + (i - 40) * 2)));
+  const B = series(Array.from({ length: n }, (_, i) => (i < 40 ? 100 + i : 140 - (i - 40) * 2)), (i) => i % 4 !== 0);
+  const r = backtestSpec(parseStrategy("Each week hold the top 1 of AAA, BBB by 10-day return").spec, { AAA: A, BBB: B }, { costBps: 10 });
+  // replay cash through the orders: it must never go meaningfully negative
+  let cash = 10000;
+  for (const o of r.orders) {
+    cash += (o.side === "buy" ? -1 : 1) * o.value - o.value * 0.001;
+    assert.ok(cash > -1, `cash ${cash.toFixed(2)} after ${o.side} ${o.symbol} on day ${o.index}`);
+  }
+  assert.ok(r.orders.some((o) => o.symbol === "AAA" && o.side === "buy"));
+});

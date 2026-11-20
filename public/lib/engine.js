@@ -228,7 +228,19 @@ export function backtestSpec(spec, barsBySym, { fallbackSymbol = "SPY", capital 
           const o = px[s].open[i];
           return { s, o, qty: ((pendingTargets[s] || 0) * eq) / (o * (1 + cost)) - shares[s] };
         }).filter((x) => Math.abs(x.qty * x.o) > eq * 1e-4).sort((a, b) => a.qty - b.qty);
-        for (const leg of legs) order(i, leg.s, leg.qty, leg.o);
+        for (const leg of legs) {
+          // Buys only spend cash on hand: if a sell that funds them is waiting on a closed
+          // market, buy what cash allows now and the rest after that sell fills.
+          let qty = leg.qty;
+          if (qty > 0) {
+            const affordable = Math.max(0, cash) / (leg.o * (1 + cost));
+            if (qty > affordable) {
+              if ((qty - affordable) * leg.o > eq * 1e-3) pendingLegs.add(leg.s);
+              qty = affordable;
+            }
+          }
+          order(i, leg.s, qty, leg.o);
+        }
         if (!pendingLegs.size) pendingTargets = null;
       }
       const eq = value(i);
