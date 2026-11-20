@@ -402,8 +402,13 @@ async function tick() {
     }
   } else {
     if (polling) return;
-    state.watchlist.forEach((s) => feed(s, "live"));
-    const ready = state.watchlist.filter((s) => feed(s, "live").status === "ready");
+    // Paper runs stay on this device. Keep quoting their symbols when a synced watchlist
+    // drops them, or an empty list never becomes ready and stepDeployments never runs.
+    const symbols = [...new Set(state.watchlist.concat(
+      state.deployments.filter((d) => d.active && (d.mode ?? "sim") === "live").map((d) => d.symbol),
+    ))];
+    symbols.forEach((s) => feed(s, "live"));
+    const ready = symbols.filter((s) => feed(s, "live").status === "ready");
     if (!ready.length) return renderMonitorIfVisible();
     polling = true;
     try {
@@ -989,7 +994,13 @@ function renderAiPill(status = {}) {
       if (v.prefs.watchlist) state.watchlist = v.prefs.watchlist;
       if (v.prefs.alerts) state.alerts = v.prefs.alerts;
       if (v.prefs.chat) state.chat = v.prefs.chat;
-      if (v.prefs.portfolio) { for (const k of Object.keys(portfolio)) delete portfolio[k]; Object.assign(portfolio, v.prefs.portfolio); }
+      if (v.prefs.portfolio) {
+        for (const k of Object.keys(portfolio)) delete portfolio[k];
+        Object.assign(portfolio, v.prefs.portfolio);
+        // The rule fields are not rebuilt with the holdings table, and new symbols have no price yet.
+        syncRuleInputs();
+        refreshPortfolioPrices();
+      }
       store.set("saved", state.saved);
       persistMonitor();
       store.set("chat", state.chat);
