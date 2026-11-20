@@ -83,3 +83,21 @@ test("live paper-trading rules expose entry/exit on the shared calendar", () => 
   assert.equal(rules.time.length, 300);
   assert.equal(typeof rules.entry(299), "boolean");
 });
+
+test("a cross in another market while this one is closed counts at the next session", () => {
+  // BBB crosses above 100 on day 5, a day AAA is closed.
+  const A = series(Array.from({ length: 20 }, () => 50), (i) => i === 5);
+  const B = series(Array.from({ length: 20 }, (_, i) => (i < 5 ? 90 : 110)));
+  const r = backtestSpec(parseStrategy("Buy AAA when BBB crosses above 100").spec, { AAA: A, BBB: B });
+  assert.equal(r.trades.length, 1);
+  assert.equal(r.trades[0].entryTime, day(7)); // seen on day 6 (AAA's next session), filled day 7
+});
+
+test("portfolios only trade a market on days it is open", () => {
+  const A = series(Array.from({ length: 60 }, (_, i) => 100 + i));
+  const B = series(Array.from({ length: 60 }, (_, i) => 100 - i * 0.5), (i) => i % 3 === 1);
+  const r = backtestSpec(parseStrategy("Hold 50% AAA, 50% BBB, rebalance weekly").spec, { AAA: A, BBB: B });
+  assert.ok(r.orders.length > 4);
+  const bDays = new Set(B.map((b) => b.time));
+  assert.ok(r.orders.filter((o) => o.symbol === "BBB").every((o) => bDays.has(o.time)));
+});

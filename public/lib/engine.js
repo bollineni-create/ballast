@@ -32,7 +32,7 @@ function context(spec, barsBySym, fallback) {
   if (times.length < 3) throw new Error(`${syms.join(", ")} don't have enough overlapping history to test together.`);
 
   // pos[s][i]: index of s's latest native bar on or before calendar day i; has[s][i]: s traded that day.
-  const pos = {}, has = {}, px = {};
+  const pos = {}, has = {}, px = {}, prev = {};
   for (const s of syms) {
     const d = native[s], p = new Int32Array(times.length), h = new Uint8Array(times.length);
     let j = -1;
@@ -42,6 +42,11 @@ function context(spec, barsBySym, fallback) {
       h[i] = j >= 0 && d.time[j] === t ? 1 : 0;
     });
     pos[s] = p; has[s] = h;
+    // prev[s][i]: the calendar day of s's previous session before day i
+    const pv = new Int32Array(times.length);
+    let last = -1;
+    times.forEach((_, i) => { pv[i] = last; if (h[i]) last = i; });
+    prev[s] = pv;
     // On days a market is closed its price simply stays at the last close.
     const pick = (f) => Float64Array.from(times, (_, i) => (h[i] ? d[f][p[i]] : d.close[p[i]]));
     px[s] = { open: pick("open"), high: pick("high"), low: pick("low"), close: pick("close") };
@@ -72,9 +77,12 @@ function context(spec, barsBySym, fallback) {
         return c.op === ">" ? a > b : c.op === "<" ? a < b : c.op === ">=" ? a >= b : a <= b;
       }
       case "cross": {
-        if (i < 1) return false;
+        // Compare with the traded market's previous session, so a cross in another
+        // market while this one was closed still counts at its next session.
+        const j = has[self]?.[i] ? prev[self][i] : i - 1;
+        if (j < 0) return false;
         const a = aligned(c.a, self), b = aligned(c.b, self);
-        const [a0, a1, b0, b1] = [a[i - 1], a[i], b[i - 1], b[i]];
+        const [a0, a1, b0, b1] = [a[j], a[i], b[j], b[i]];
         if (![a0, a1, b0, b1].every(Number.isFinite)) return false;
         return c.dir === "above" ? a0 <= b0 && a1 > b1 : a0 >= b0 && a1 < b1;
       }
@@ -199,7 +207,7 @@ export function backtestSpec(spec, barsBySym, { fallbackSymbol = "SPY", capital 
     const self = spec.symbols[0];
     const assets = [...new Set([...spec.symbols, ...(spec.riskOff?.hold ? [spec.riskOff.hold] : [])])];
     weightHistory = Object.fromEntries(assets.map((s) => [s, new Float64Array(n)]));
-    let pendingTargets = null, lastPeriod = null, rotation = null, riskWas = null, started = false;
+    let pendingTargets = null, pendingLegs = new Set(), lastPeriod = null, rotation = null, riskWas = null, started = false;
     const rank = (i) => {
       const r = spec.symbols
         .map((s) => ({ s, v: ctx.aligned(spec.rotate.by, s)[i] }))
@@ -212,13 +220,16 @@ export function backtestSpec(spec, barsBySym, { fallbackSymbol = "SPY", capital 
     for (let i = 0; i < n; i++) {
       if (pendingTargets) {
         const eq = value(i, "open");
+        // Trade only markets open today; closed ones fill at their next session.
+        const open = assets.filter((s) => pendingLegs.has(s) && has[s][i]);
+        open.forEach((s) => pendingLegs.delete(s));
         // sells first so they fund the buys
-        const legs = assets.map((s) => {
+        const legs = open.map((s) => {
           const o = px[s].open[i];
           return { s, o, qty: ((pendingTargets[s] || 0) * eq) / (o * (1 + cost)) - shares[s] };
         }).filter((x) => Math.abs(x.qty * x.o) > eq * 1e-4).sort((a, b) => a.qty - b.qty);
         for (const leg of legs) order(i, leg.s, leg.qty, leg.o);
-        pendingTargets = null;
+        if (!pendingLegs.size) pendingTargets = null;
       }
       const eq = value(i);
       equity[i] = eq;
@@ -242,6 +253,7 @@ export function backtestSpec(spec, barsBySym, { fallbackSymbol = "SPY", capital 
       }
       if (go) {
         pendingTargets = target;
+        pendingLegs = new Set(assets);
         started = true;
         lastPeriod = period;
       }

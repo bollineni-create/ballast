@@ -4,7 +4,7 @@ import { lineChart } from "./lib/chart.js";
 import { analyze, plan } from "./lib/rebalance.js";
 import { isCrypto, coinbaseHistory, coinbaseQuote } from "./lib/coinbase.js";
 import { parseStrategy } from "./lib/parse.js";
-import { summarize } from "./lib/spec.js";
+import { summarize, describe } from "./lib/spec.js";
 import { localStrategy } from "./lib/builder.js";
 import { backtestSpec, neededSymbols, signalRules } from "./lib/engine.js";
 import { MARKETS, resolveSymbol, nameOf } from "./lib/markets.js";
@@ -463,7 +463,8 @@ $("#market-search").addEventListener("submit", (e) => {
 function useSymbol(s) {
   $("#markets").close();
   if (parsed?.spec.kind === "signal" && parsed.spec.symbols.length) {
-    $("#rules").value = rulesText().replace(/^trade .*$/im, `Trade ${s}`);
+    // The asset may be named in a Trade line or in the Buy line; rewrite the rules either way.
+    $("#rules").value = describe({ ...parsed.spec, symbols: [s] });
   } else if (parsed?.spec.kind === "allocate") {
     pushChat({ role: "assistant", text: `This is a portfolio, so its assets come from its Hold or Rotate line. Edit that line to add ${s} (${nameOf(s)}).` });
     return;
@@ -651,6 +652,8 @@ function stepDeployments() {
     }
     if (!r) continue;
     const i = r.time.length - 1;
+    // With a cross-market rule the latest day can be another exchange's session.
+    if (r.hasBar && !r.hasBar[i]) continue;
     const price = r.close[i], bar = r.time[i];
     // Rule signals act at most once per daily bar; stops and targets can fire any time.
     const canSignal = d.lastSignalBar !== bar;
@@ -660,7 +663,7 @@ function stepDeployments() {
       const stopHit = r.stopLoss && price <= d.entryPrice * (1 - r.stopLoss);
       const trailHit = r.trailingStop && price <= d.peak * (1 - r.trailingStop);
       const targetHit = r.takeProfit && price >= d.entryPrice * (1 + r.takeProfit);
-      const timeHit = canSignal && r.maxHold && d.barsHeld > r.maxHold;
+      const timeHit = canSignal && r.maxHold && d.barsHeld >= r.maxHold;
       const exitSignal = canSignal && r.exit(i);
       if (stopHit || trailHit || targetHit || timeHit || exitSignal) {
         const pnl = d.shares * (price - d.entryPrice);
@@ -671,7 +674,7 @@ function stepDeployments() {
         d.trades++;
       }
     } else if (canSignal && r.entry(i)) {
-      Object.assign(d, { shares: d.cash / price, entryPrice: price, peak: price, cash: 0, barsHeld: 0, lastBar: bar, lastSignalBar: bar });
+      Object.assign(d, { shares: d.cash / price, entryPrice: price, peak: price, cash: 0, barsHeld: 1, lastBar: bar, lastSignalBar: bar });
       log(`BUY ${d.shares.toFixed(4)} ${d.symbol} @ ${price.toFixed(2)} · "${d.name}"`);
     }
   }
