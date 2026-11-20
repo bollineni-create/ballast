@@ -96,6 +96,10 @@ Requests use `claude-opus-5-5` with server-side refusal fallback enabled. If a r
 
 Saved strategies, the watchlist, alerts and paper positions are stored in your browser's local storage.
 
+### Sync across devices
+
+On [bollineni.co](https://bollineni.co/#ballast), the **Sync** button in the top bar keeps saved strategies, the rebalancing portfolio, the watchlist, price alerts and the strategy chat the same on every linked device, with no account: link a device by QR code, link or code. Everything is encrypted in the browser first. Paper-trading runs stay on the device that started them. The local server and the Mac app don't have sync.
+
 ## Paper rebalancing test (Alpaca)
 
 The autopilot runs the Rebalance tab's logic automatically on an **Alpaca paper-trading** account: real market prices, simulated money. The trading client only connects to `paper-api.alpaca.markets` and refuses any other host, so it cannot place real-money orders.

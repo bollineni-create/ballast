@@ -950,3 +950,71 @@ function renderAiPill(status = {}) {
   refreshPortfolioPrices();
   setInterval(refreshPortfolioPrices, 15000);
 })();
+
+
+// ---------- sync across devices (bollineni.co only) ----------
+// On the site, /sync/kit.js keeps saved strategies, the rebalancing portfolio, the watchlist,
+// price alerts and the strategy chat the same on every device linked to the site's sync, with no
+// account. Everything is encrypted in this browser first. Paper-trading runs stay on the device
+// that started them: they move with every price tick, and two devices trading one book would fight.
+(function startSync() {
+  const S = window.BollineniSync;
+  if (!S || !window.crypto?.subtle) return;
+  const PREF_KEYS = ["watchlist", "alerts", "portfolio", "chat"];
+  const sym = (v) => typeof v === "string" && /^[A-Z0-9.^=-]{1,15}$/.test(v);
+  const num = (v) => Number.isFinite(v);
+  const CHECK = {
+    watchlist: (v) => Array.isArray(v) && v.length <= 50 && v.every(sym),
+    alerts: (v) => Array.isArray(v) && v.length <= 100 && v.every((a) => a && sym(a.symbol) && (a.dir === "above" || a.dir === "below") && num(a.price) && typeof a.triggered === "boolean"),
+    portfolio: (v) => v && Array.isArray(v.holdings) && v.holdings.length <= 60 && v.holdings.every((h) => h && typeof h.symbol === "string" && h.symbol.length <= 15 && num(h.shares) && num(h.target))
+      && num(v.cash) && num(v.band) && num(v.minTrade) && num(v.cashBuffer) && typeof v.fractional === "boolean",
+    chat: (v) => Array.isArray(v) && v.length <= 60 && v.every((m) => m && typeof m === "object" && JSON.stringify(m).length < 40000),
+  };
+  const engine = S.createEngine({
+    app: "ballast",
+    collections: { strategies: { first: "keep" }, prefs: { first: "remote" } },
+    read() {
+      const strategies = {};
+      for (const s of state.saved) strategies[s.id] = { name: s.name, code: s.code, created: s.created || 0 };
+      const prefs = { watchlist: state.watchlist, alerts: state.alerts, portfolio: { ...portfolio }, chat: state.chat.slice(-60) };
+      return { strategies, prefs: JSON.parse(JSON.stringify(prefs)) };
+    },
+    clean(col, v, id) {
+      if (col === "strategies") return /^[\w-]{1,64}$/.test(id) && v && typeof v.name === "string" && v.name.length <= 120 && typeof v.code === "string" && v.code.length <= 60000 && num(v.created) ? v : null;
+      if (col === "prefs") return Object.hasOwn(CHECK, id) && CHECK[id](v) ? v : null;
+      return null;
+    },
+    async write(v) {
+      state.saved = Object.entries(v.strategies).map(([id, s]) => ({ id, ...s })).sort((a, b) => a.created - b.created);
+      if (v.prefs.watchlist) state.watchlist = v.prefs.watchlist;
+      if (v.prefs.alerts) state.alerts = v.prefs.alerts;
+      if (v.prefs.chat) state.chat = v.prefs.chat;
+      if (v.prefs.portfolio) { for (const k of Object.keys(portfolio)) delete portfolio[k]; Object.assign(portfolio, v.prefs.portfolio); }
+      store.set("saved", state.saved);
+      persistMonitor();
+      store.set("chat", state.chat);
+      savePortfolio();
+      renderLibrary();
+      renderChat();
+      renderRebalance();
+      renderMonitorIfVisible();
+    },
+    maxPayload: 790000,
+  });
+  S.register(engine, "Ballast");
+  // Every save to one of these keys is a change to sync.
+  const set = store.set;
+  store.set = (key, value) => { set(key, value); if (key === "saved" || PREF_KEYS.includes(key)) engine.changed(); };
+  const btn = $("#sync-btn");
+  const draw = () => {
+    const st = engine.status();
+    btn.hidden = !st.available;
+    btn.classList.toggle("on", st.on);
+    btn.textContent = !st.on ? "Sync" : st.phase === "syncing" ? "Syncing…" : st.phase === "error" ? "Sync ⚠" : "Synced";
+    btn.title = st.on ? (st.problem?.message || "Synced with your devices. Click to manage.") : "Keep strategies, portfolio, watchlist and alerts on all your devices";
+  };
+  engine.onStatus(draw);
+  S.site.onChange(draw);
+  btn.addEventListener("click", () => S.openPanel({ app: "ballast", tint: "#2DD4BF" }));
+  engine.start().catch(() => {});
+})();

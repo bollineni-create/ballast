@@ -62,6 +62,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .tab.active { color: var(--text); background: var(--surface-2); font-weight: 600; }
 .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
 .pill.on { background: var(--accent-soft); color: var(--accent); }
+.sync-pill { border: 0; cursor: pointer; font: inherit; font-size: 12px; min-height: 28px; }
+.sync-pill[hidden] { display: none; }
+.sync-pill:hover { color: var(--text, inherit); }
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .view { display: none; }
