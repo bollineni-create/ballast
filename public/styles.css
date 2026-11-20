@@ -106,11 +106,30 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
    instead of the name being cut short. */
 .name-input { font-weight: 600; font-size: 15px; border-color: transparent; background: transparent; min-width: min(12em, 100%); flex: 1; }
 .name-input:hover { border-color: var(--border); }
-#code {
-  flex: 1; min-height: 300px; width: 100%;
-  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: var(--surface-2); resize: vertical; tab-size: 2;
+.rules-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.rules-label .note { font-size: 12px; }
+#rules {
+  flex: 1; min-height: 190px; width: 100%;
+  font: 14px/1.7 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--surface-2); resize: vertical;
 }
+.rules-check { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; border: 1px solid var(--border); background: var(--surface-2); min-height: 1em; }
+.rules-check:empty { display: none; }
+.rules-check.ok { border-color: color-mix(in srgb, var(--up) 40%, var(--border)); }
+.rules-check.warn { border-color: #d97706; }
+.rules-check.warn div { color: #b45309; margin-top: 4px; }
+.rules-check.bad { border-color: var(--down); color: var(--down); }
+.grammar { margin-top: 8px; font-size: 13px; }
+.grammar summary { cursor: pointer; color: var(--accent); }
+.grammar-body { color: var(--muted); }
+.grammar-body p { margin: 6px 0; }
+.grammar code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: var(--text); }
+pre.rules-preview { white-space: pre-wrap; margin: 0; background: var(--surface-2); padding: 8px 10px; border-radius: 6px; font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; color: var(--text); }
+dialog.markets { width: min(760px, 94vw); max-height: 86vh; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); padding: 16px; }
+dialog.markets::backdrop { background: rgb(0 0 0 / 0.35); }
+.market-tabs { flex-wrap: wrap; margin: 8px 0 4px; }
+.markets .table-wrap { max-height: 56vh; overflow-y: auto; }
+.markets td.row { gap: 6px; justify-content: flex-end; }
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 12px; }
 .controls label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
 .controls input[type="number"] { width: 100px; }

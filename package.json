@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "autopilot": "node autopilot-cli.js"
+    "autopilot": "node autopilot-cli.js",
+    "test": "node --test \"test/*.test.mjs\""
   },
   "engines": {
     "node": ">=20.12"

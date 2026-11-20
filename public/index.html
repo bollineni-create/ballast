@@ -31,23 +31,34 @@
           <h2>Describe a strategy</h2>
           <div id="chat-log" class="chat-log"></div>
           <form id="chat-form" class="chat-form">
-            <textarea id="chat-input" rows="3" placeholder="e.g. Buy when RSI 14 crosses above 30, sell above 70, 5% stop loss"></textarea>
+            <textarea id="chat-input" rows="3" placeholder="e.g. Buy Toyota when it drops 10% from its 52-week high, sell when it gets back above the 50-day average, 8% trailing stop"></textarea>
             <div class="row">
-              <label class="check"><input type="checkbox" id="chat-refine" /> Modify current code</label>
-              <button class="btn primary" type="submit" id="chat-send">Generate</button>
+              <label class="check" title="Change the rules on the right instead of starting a new strategy"><input type="checkbox" id="chat-refine" /> Edit current rules</label>
+              <button class="btn primary" type="submit" id="chat-send">Build</button>
             </div>
           </form>
         </div>
-
         <div class="panel editor">
           <div class="panel-head">
             <input id="strategy-name" class="name-input" value="Untitled strategy" aria-label="Strategy name" />
             <div class="row">
               <button class="btn" id="save-strategy">Save</button>
-              <button class="btn" id="deploy-strategy" title="Run on the simulated live feed in Monitor">Paper trade</button>
+              <button class="btn" id="deploy-strategy" title="Run these rules on live or simulated prices in Monitor">Paper trade</button>
             </div>
           </div>
-          <textarea id="code" spellcheck="false" aria-label="Strategy code"></textarea>
+          <label class="rules-label" for="rules">Rules <span class="note">plain English, one per line. Edit freely; Cmd/Ctrl-Enter runs the test.</span></label>
+          <textarea id="rules" spellcheck="false" aria-label="Strategy rules"></textarea>
+          <div id="rules-check" class="rules-check" aria-live="polite"></div>
+          <details class="grammar">
+            <summary>What can rules say?</summary>
+            <div class="grammar-body">
+              <p><strong>Buy/sell:</strong> <code>Trade SPY</code> · <code>Buy when …</code> · <code>Sell when …</code> · <code>Stop loss 5%</code> · <code>Take profit 10%</code> · <code>Trailing stop 8%</code> · <code>Sell after 20 days</code> · <code>Position size 50%</code></p>
+              <p><strong>Portfolios:</strong> <code>Hold 60% SPY, 40% TLT</code> · <code>Rotate among SPY, EFA, TLT</code> + <code>Hold the top 1 by 126-day return</code> · <code>When price of SPY is below 200-day SMA of SPY, hold TLT instead</code> · <code>Rebalance monthly</code> · <code>Rebalance when any holding drifts 5% from its target</code></p>
+              <p><strong>Conditions:</strong> <em>is above / below / at least / at most</em>, <em>crosses above / below</em>, <em>is more than 5% below</em>, <em>closes down 3 days in a row</em>, joined with <em>and</em>, <em>or</em>, parentheses.</p>
+              <p><strong>Values:</strong> price, open, high, low, volume, N-day SMA / EMA / RSI / ATR / return / volatility / high / low, drawdown from N-day high, upper / middle / lower Bollinger Band (20, 2), MACD line / signal line / histogram (12, 26, 9), N-day average volume, … N days ago. Add <code>of ^VIX</code> (any symbol) to read another market.</p>
+              <p><strong>Markets:</strong> US stocks and ETFs (AAPL, SPY), indices (^GSPC, ^N225, ^FTSE, ^GDAXI), London .L, Frankfurt .DE, Paris .PA, Tokyo .T, Hong Kong .HK, India .NS, Sydney .AX, Toronto .TO and more, FX (EURUSD=X), futures (GC=F, CL=F) and crypto (BTC-USD). Names work too: Toyota, gold, the Nikkei, bonds.</p>
+            </div>
+          </details>
           <div class="controls">
             <label>Data
               <select id="data-source">
@@ -65,8 +76,9 @@
                 <option value="max" selected>Max</option>
               </select>
             </label>
-            <label>Symbol <input id="symbol" value="SPY" size="9" list="symbol-hints" /></label>
-            <datalist id="symbol-hints"><option value="SPY"><option value="QQQ"><option value="AAPL"><option value="MSFT"><option value="NVDA"><option value="TSLA"><option value="^GSPC"><option value="BTC-USD"><option value="ETH-USD"><option value="SOL-USD"></datalist>
+            <label>Market <input id="symbol" value="SPY" size="14" list="symbol-hints" /></label>
+            <button class="btn" type="button" id="browse-markets">Browse markets</button>
+            <datalist id="symbol-hints"><option value="SPY"><option value="QQQ"><option value="AAPL"><option value="NVDA"><option value="^GSPC"><option value="^N225"><option value="^FTSE"><option value="^GDAXI"><option value="7203.T"><option value="ASML.AS"><option value="GC=F"><option value="EURUSD=X"><option value="BTC-USD"><option value="ETH-USD"></datalist>
             <label>Capital <input id="capital" type="number" value="10000" min="100" step="100" /></label>
             <label>Fees+slip (bps) <input id="cost" type="number" value="10" min="0" step="1" /></label>
             <label class="file">Import CSV <input id="csv" type="file" accept=".csv,text/csv" /></label>
@@ -76,19 +88,28 @@
           <p id="error" class="error" hidden></p>
         </div>
       </div>
-
+      <dialog id="markets" class="markets">
+        <div class="panel-head">
+          <h3>Markets</h3>
+          <form id="market-search" class="row"><input id="market-query" placeholder="Ticker or name (Toyota, gold, DAX)" size="26" /><button class="btn small">Use</button><button type="button" class="btn small" id="markets-close">Close</button></form>
+        </div>
+        <nav id="market-tabs" class="tabs market-tabs"></nav>
+        <p id="market-note" class="note"></p>
+        <div class="table-wrap"><table id="market-list"></table></div>
+      </dialog>
       <div id="results" class="results" hidden>
         <div id="metrics" class="metrics"></div>
+        <p id="result-note" class="error" hidden></p>
         <div class="panel">
-          <div class="panel-head"><h3>Equity curve</h3><span class="legend"><i style="background:var(--accent)"></i>Strategy <i style="background:var(--muted)"></i>Buy &amp; hold</span></div>
+          <div class="panel-head"><h3>Equity curve</h3><span class="legend"><i style="background:var(--accent)"></i>Strategy <i style="background:var(--muted)"></i><span id="bench-legend">Buy &amp; hold</span></span></div>
           <canvas id="equity-chart" class="chart"></canvas>
         </div>
         <div class="panel">
-          <div class="panel-head"><h3>Price &amp; trades</h3><span class="legend"><i style="background:var(--up)"></i>Buy <i style="background:var(--down)"></i>Sell</span></div>
+          <div class="panel-head"><h3 id="second-title">Price &amp; trades</h3><span class="legend" id="second-legend"></span></div>
           <canvas id="price-chart" class="chart"></canvas>
         </div>
         <div class="panel">
-          <div class="panel-head"><h3>Trades</h3><button class="btn small" id="export-trades">Export CSV</button></div>
+          <div class="panel-head"><h3 id="trades-title">Trades</h3><button class="btn small" id="export-trades">Export CSV</button></div>
           <div class="table-wrap"><table id="trades"></table></div>
         </div>
       </div>
@@ -153,7 +174,7 @@
       <div class="monitor-grid">
         <div class="panel">
           <div class="panel-head"><h3>Watchlist</h3>
-            <form id="watch-form" class="row"><input id="watch-symbol" placeholder="Symbol" size="8" /><button class="btn small">Add</button></form>
+            <form id="watch-form" class="row"><input id="watch-symbol" placeholder="Symbol or name" size="12" /><button class="btn small">Add</button></form>
           </div>
           <div class="table-wrap"><table id="watchlist"></table></div>
         </div>
