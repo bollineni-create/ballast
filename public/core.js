@@ -159,8 +159,32 @@ export function liveHistory(symbol, years = 3) {
 }
 
 // Prices quoted in a currency's small unit (London stocks trade in pence).
-export const MINOR = { GBp: ["GBP", 100], GBX: ["GBP", 100], ILA: ["ILS", 100], ZAc: ["ZAR", 100] };
-export const STABLE = { USDT: "USD", USDC: "USD" };
+const MINOR = { GBp: ["GBP", 100], GBX: ["GBP", 100], ILA: ["ILS", 100], ZAc: ["ZAR", 100] };
+const STABLE = { USDT: "USD", USDC: "USD" };
+
+// Latest prices in one currency. Quotes arrive in each market's own (London in pence),
+// so anything that adds holdings together goes through here.
+// Returns { prices: { SYM: price in base }, errors: { SYM: why } }.
+export async function quotesInBase(symbols, base = settings.currency || "USD") {
+  const { quotes, errors } = await fetchQuotes(symbols);
+  const unit = {};
+  for (const s of symbols) {
+    const c0 = quotes[s]?.currency;
+    if (!c0 || /=X$/.test(s)) continue;
+    const [c, div] = MINOR[c0] || [STABLE[c0] || c0, 1];
+    unit[s] = { c, div };
+  }
+  const pairs = [...new Set(Object.values(unit).filter((u) => u.c !== base).map((u) => `${u.c}${base}=X`))];
+  const fxq = pairs.length ? (await fetchQuotes(pairs)).quotes : {};
+  const prices = {}, errs = { ...errors };
+  for (const s of symbols) {
+    if (!quotes[s]) { errs[s] ||= "No quote"; continue; }
+    const u = unit[s] || { c: base, div: 1 };
+    const rate = u.c === base ? 1 : fxq[`${u.c}${base}=X`]?.price;
+    if (rate) prices[s] = (quotes[s].price / u.div) * rate; else errs[s] = `No ${u.c}/${base} exchange rate`;
+  }
+  return { prices, errors: errs };
+}
 
 // Folds dividends into the bars so buy & hold includes them (total return).
 const totalReturn = (bars) => bars.map((b) => (b.adj ? { ...b, open: b.open * b.adj, high: b.high * b.adj, low: b.low * b.adj, close: b.close * b.adj } : b));

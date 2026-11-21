@@ -1,6 +1,6 @@
 // Portfolio: keeps real holdings on target (advice only, it never places orders),
 // plus the optional Alpaca paper autopilot that the Mac app runs.
-import { $, esc, money, store, state, on, go, showing, toast, downloadCsv, copyText, fetchJson, postJson, fetchQuotes } from "../core.js";
+import { $, esc, money, store, state, on, go, showing, toast, downloadCsv, copyText, fetchJson, postJson, quotesInBase } from "../core.js";
 import { analyze, plan } from "../lib/rebalance.js";
 import { log, notify } from "./live.js";
 import { lastRun } from "./studio.js";
@@ -14,9 +14,10 @@ async function refreshPrices() {
   const symbols = [...new Set(pf().holdings.map((h) => h.symbol).filter(Boolean))];
   if (!symbols.length) return render();
   try {
-    const { quotes, errors: errs } = await fetchQuotes(symbols);
+    // In one currency, so foreign holdings add up correctly with the rest.
+    const q = await quotesInBase(symbols);
     for (const s of symbols) {
-      if (quotes[s]) { prices[s] = quotes[s].price; delete errors[s]; } else errors[s] = errs[s] || "No quote";
+      if (q.prices[s] != null) { prices[s] = q.prices[s]; delete errors[s]; } else errors[s] = q.errors[s] || "No quote";
     }
     $("#rb-updated").textContent = `Prices updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {
@@ -27,7 +28,7 @@ async function refreshPrices() {
 
 export function render() {
   const p = pf();
-  const a = analyze(p.holdings, prices, Number(p.cash) || 0);
+  const a = analyze(p.holdings, prices, Number(p.cash) || 0, p.cashBuffer);
   rbPlan = plan(a, { band: p.band, minTrade: p.minTrade, fractional: p.fractional, cashBuffer: p.cashBuffer, force: $("#rb-force").checked });
   const out = rbPlan.outOfBand.length;
   const priced = p.holdings.every((h) => !h.symbol || prices[h.symbol] != null);
@@ -250,7 +251,8 @@ export function initPortfolio() {
 
   on("targets", setTargets);
   on("show", (v) => { if (v === "portfolio") { render(); loadAutopilot(); } });
-  on("data", () => { syncInputs(); render(); });
+  // Holdings changed from elsewhere (sync, the check-up): price anything new.
+  on("data", () => { syncInputs(); if (pf().holdings.some((h) => h.symbol && prices[h.symbol] == null)) refreshPrices(); else render(); });
   refreshPrices();
   setInterval(refreshPrices, 15000);
   setInterval(() => showing("portfolio") && loadAutopilot(), 60000);

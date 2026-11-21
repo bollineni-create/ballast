@@ -326,10 +326,23 @@ test("goals and cash are read without confusing them with holdings", () => {
   assert.equal(g("need 500 a month, want $2 million").target, 2000000);
   assert.equal(g("I have 50 AAPL").target, undefined);
   assert.equal(g("want income from dividends").income, true);
+  assert.equal(g("want $2,000 in 0700.HK").target, undefined);
+  assert.equal(g("$5,000 in a 10-year treasury fund, held 5 years, 1 year return was good").years, undefined);
+  assert.equal(g("50 AAPL, 3k cash. 20 years, $500 a month").years, 20);
+  assert.equal(g("15 years to go").years, 15);
   // percent cash next to share counts, and the reverse
   const w = toWeights(parseHoldings("50 AAPL, 10% cash"), { AAPL: 180 });
   close(w.total, 10000); close(w.cashWeight, 0.1); close(w.weights.AAPL, 0.9);
   assert.deepEqual(parseHoldings("100 shares of Toyota, 7203.T 50, $2,000 in 0700.HK").positions, [{ symbol: "7203.T", shares: 150 }, { symbol: "0700.HK", value: 2000 }]);
   const p = parseHoldings("60% VTI, 30% BND, 10% cash");
   close(toWeights(p).cashWeight, 0.1);
+});
+
+import { analyze, plan } from "../public/lib/rebalance.js";
+test("cash kept aside doesn't make on-target holdings look off target", () => {
+  const holdings = [{ symbol: "AAA", shares: 54, target: 60 }, { symbol: "BBB", shares: 36, target: 40 }];
+  const a = analyze(holdings, { AAA: 100, BBB: 100 }, 1000, 10);
+  close(a.rows[0].drift, 0); close(a.rows[1].drift, 0);
+  assert.equal(plan(a, { band: 5, cashBuffer: 10 }).needed, false);
+  close(analyze(holdings, { AAA: 100, BBB: 100 }, 1000).rows[0].drift, -6); // unchanged without a buffer
 });

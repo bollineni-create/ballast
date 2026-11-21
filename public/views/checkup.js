@@ -1,6 +1,6 @@
 // Check-up: share a portfolio (typed, pasted or as a screenshot) and goals, and see
 // how the mix has behaved, where its risk sits and how it lines up with the goals.
-import { $, esc, money, pct, num, tone, store, state, settings, on, emit, showing, toast, postJson, fetchQuotes, loadBars, MINOR, STABLE } from "../core.js";
+import { $, esc, money, pct, num, tone, store, state, settings, on, emit, showing, toast, postJson, quotesInBase, loadBars } from "../core.js";
 import { parseHoldings, toWeights } from "../lib/holdings.js";
 import { checkup } from "../lib/checkup.js";
 import { describe } from "../lib/spec.js";
@@ -81,23 +81,7 @@ async function analyze() {
     const needPrice = positions.filter((p) => p.weight == null).map((p) => p.symbol); // values too, so they can become share counts
     const prices = {};
     if (needPrice.length) {
-      const { quotes } = await fetchQuotes(needPrice);
-      // Prices come in each market's own currency (London in pence): bring them into one.
-      const base = settings.currency || "USD", unit = {};
-      for (const s of needPrice) {
-        const c0 = quotes[s]?.currency;
-        if (!c0 || /=X$/.test(s)) continue;
-        const [c, div] = MINOR[c0] || [STABLE[c0] || c0, 1];
-        unit[s] = { c, div };
-      }
-      const pairs = [...new Set(Object.values(unit).filter((u) => u.c !== base).map((u) => `${u.c}${base}=X`))];
-      const fxq = pairs.length ? (await fetchQuotes(pairs)).quotes : {};
-      for (const s of needPrice) {
-        if (!quotes[s]) continue;
-        const u = unit[s] || { c: base, div: 1 };
-        const rate = u.c === base ? 1 : fxq[`${u.c}${base}=X`]?.price;
-        if (rate) prices[s] = (quotes[s].price / u.div) * rate; // no rate: left unpriced and reported below
-      }
+      Object.assign(prices, (await quotesInBase(needPrice)).prices); // one currency, so holdings can be added up
     }
     const w = toWeights({ positions, cash, cashWeight }, prices);
     if (w.missing.length) throw new Error(`Couldn't get a price for ${w.missing.join(", ")}. Check the symbol, or give that holding as a dollar amount.`);
@@ -106,7 +90,9 @@ async function analyze() {
     const spec = { kind: "allocate", symbols: syms, weights: w.weights, rotate: null, rebalance: "yearly", band: null, riskOff: null };
     const data = await loadBars(spec, syms[0], { ...settings, years: "max", benchmark: "", source: "live" });
     if (mine !== seq) return;
-    read = { positions, cash, prices, ...w, notes, data, spec, unread: typed.unread };
+    // Cash in dollars, whether it was typed as dollars or as a share of the whole.
+    const cashAmount = cash || (w.total ? w.cashWeight * w.total : 0);
+    read = { positions, prices, ...w, cash: cashAmount, notes, data, spec, unread: typed.unread };
     stated = goals.income ? { income: true } : {};
     fillGoals({ ...goalsFromFields(), ...goals });
     store.set("checkup", { text });
@@ -202,8 +188,10 @@ export function initCheckup() {
     p.holdings = report.holdings.map((h) => {
       const pos = read.positions.find((x) => x.symbol === h.symbol);
       const shares = pos.shares ?? (pos.value != null && read.prices[h.symbol] ? pos.value / read.prices[h.symbol] : 0);
-      return { symbol: h.symbol, shares: Math.round(shares * 1e4) / 1e4, target: Math.round(h.weight * 10) / 10 };
+      // The rebalancer's targets cover the invested part; the cash share becomes "cash to keep".
+      return { symbol: h.symbol, shares: Math.round(shares * 1e4) / 1e4, target: Math.round((h.weight / (100 - report.cashWeight)) * 1000) / 10 };
     });
+    p.cashBuffer = Math.round(report.cashWeight * 10) / 10;
     if (read.total) p.cash = Math.round(read.cash * 100) / 100;
     store.set("portfolio", p);
     emit("data");
