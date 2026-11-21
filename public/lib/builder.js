@@ -5,7 +5,7 @@ import { describe, summarize, nameFor } from "./spec.js";
 
 // Rule lines a follow-up instruction replaces rather than adds to.
 const REPLACES = [
-  [/(?<!to\s)\bcover\b[^.]*\b(?:when|if|on)\b/i, /^cover when/i],
+  [/\bcover\b[^.]*\b(?:when|if|on)\b/i, /^cover when/i],
   [/\b(?:short|bet against)\b[^.]*\b(?:when|if|on)\b/i, /^short when/i],
   [/\b(?:buy|enter|go long)\b(?!\s+to\s+cover)[^.]*\b(?:when|if|on|after)\b/i, /^buy when/i],
   [/\b(?:sell|exit|get out)\b(?!\s+short)[^.]*\b(?:when|if|on)\b/i, /^sell when/i],
@@ -13,21 +13,22 @@ const REPLACES = [
   [/\binverse[- ]vol|risk[- ]parity|risk[- ]weight/i, /^weight by/i],
   [/\btrailing\b/i, /^trailing stop/i],
   [/(?<!trailing\s)\bstop\b(?!\s+trailing)/i, /^stop loss/i],
-  [/\b(?:take[- ]?profit|target)\b/i, /^take profit/i],
+  // "target" alone means take profit, but not in "volatility target" or "target 10% volatility"
+  [/\btake[- ]?profit\b|(?<!vol(?:atility)?\s)\btarget\b(?![^.]*\bvol)/i, /^take profit/i],
   [/\b(?:after|for)\s+\d+\s*(?:trading\s+)?(?:days?|weeks?|months?|bars?)\b/i, /^sell after/i],
   [/\bposition size\b|%\s+per\s+(?:position|trade)/i, /^position size/i],
   [/\brebalanc|\b(?:monthly|quarterly|weekly|yearly|annually)\b/i, /^rebalance/i],
   [/^(?:use|switch to|try|trade|run it on|test it on|test on|on)\s+\S+(?:\s+instead)?\s*$/i, /^trade /i],
 ];
 
-const REMOVE = /\b(?:remove|drop|delete|no|without|get rid of)\s+(?:the\s+)?(stop loss|stop|take profit|target|trailing stop|time limit|sell rule|position size|short rule|cover rule|volatility target|vol target)/i;
+const REMOVE = /\b(?:remove|drop|delete|no|without|get rid of)\s+(?:the\s+)?(volatility target|vol target|stop loss|stop|take profit|target|trailing stop|time limit|sell rule|position size|short rule|cover rule)/i;
 
 function merge(prompt, current) {
   let lines = current.split("\n").map((l) => l.trim()).filter(Boolean);
   const rm = prompt.match(REMOVE);
   if (rm) {
     const what = rm[1].toLowerCase();
-    const re = what.startsWith("trailing") ? /^trailing stop/i : what.startsWith("stop") ? /^stop loss/i
+    const re = /vol/.test(what) ? /^target \d[\d.]*% volatility/i : what.startsWith("trailing") ? /^trailing stop/i : what.startsWith("stop") ? /^stop loss/i
       : /take profit|target/.test(what) ? /^take profit/i : what === "time limit" ? /^sell after/i
       : what === "sell rule" ? /^sell when/i : what === "short rule" ? /^(?:short|cover) when/i : what === "cover rule" ? /^cover when/i
       : /vol/.test(what) ? /^target \d[\d.]*% volatility/i : /^position size/i;

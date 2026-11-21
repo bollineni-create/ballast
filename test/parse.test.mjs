@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseStrategy, ParseError } from "../public/lib/parse.js";
 import { describe } from "../public/lib/spec.js";
+import { localStrategy } from "../public/lib/builder.js";
 
 // Free-form ideas -> the canonical rules Ballast shows (and re-reads) for them.
 const CASES = [
@@ -89,4 +90,15 @@ test("unreadable parts are reported, not silently dropped", () => {
   const r = parseStrategy("Buy when RSI is below 30, sell when the moon is full");
   assert.equal(r.unparsed.length, 1);
   assert.match(r.unparsed[0], /moon/);
+});
+
+test("follow-up edits change only the rule they name", () => {
+  const base = "Trade SPY\nBuy when price is above 200-day SMA\nShort when 14-day RSI is above 80\nCover when 14-day RSI is below 50\nTake profit 30%\nTarget 12% volatility";
+  const edit = (t) => localStrategy(t, base).rules;
+  assert.equal(edit("target 10% volatility"), base.replace("12%", "10%"));
+  assert.equal(edit("remove the volatility target"), base.replace("\nTarget 12% volatility", ""));
+  assert.equal(edit("remove the target"), base.replace("\nTake profit 30%", ""));
+  assert.equal(edit("take profit 20%"), base.replace("30%", "20%"));
+  assert.equal(edit("buy to cover when RSI is below 40"), base.replace("below 50", "below 40"));
+  assert.equal(edit("cover when RSI is below 40"), base.replace("below 50", "below 40"));
 });
