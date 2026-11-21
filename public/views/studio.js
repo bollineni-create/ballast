@@ -51,7 +51,7 @@ function reply(html, bad = false) {
   el.innerHTML = html || "";
 }
 
-async function generate(prompt, refine) {
+export async function generate(prompt, refine) {
   const current = refine ? rulesText() : undefined;
   if (!state.server) return localStrategy(prompt, current);
   try {
@@ -629,6 +629,7 @@ export function initStudio() {
     if (parsed.spec.kind !== "signal") return showError("Paper trading runs buy/sell rules. For a portfolio, open Today and send its targets to Portfolio.");
     emit("deploy", { name: nameText(), rules: rulesText(), spec: parsed.spec, symbol: csv ? "SPY" : (parsed.spec.symbols[0] || fallbackSymbol()), mode: csv ? "live" : settings.source });
   });
+  $("#compare-strategy").addEventListener("click", () => emit("compare-snapshot", currentStrategy()));
   $("#share-strategy").addEventListener("click", () => {
     checkRules();
     if (!parsed) return showError("Fix the rules before sharing them.");
