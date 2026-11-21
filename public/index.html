@@ -38,14 +38,14 @@
     <section id="view-studio" class="view active">
       <div class="composer">
         <form id="chat-form">
-          <label class="eyebrow" for="chat-input">Describe a strategy</label>
+          <label class="eyebrow" for="chat-input">Describe a strategy in plain English</label>
           <div class="composer-box">
             <textarea id="chat-input" rows="2" placeholder="Buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average, 8% trailing stop"></textarea>
             <button class="btn primary" type="submit" id="chat-send">Build</button>
           </div>
           <div class="composer-row">
             <label class="check" title="Change the strategy below instead of starting a new one"><input type="checkbox" id="chat-refine" /> Change the current strategy</label>
-            <span class="note">Plain English, any major market. ⌘↵ to build.</span>
+
           </div>
         </form>
         <div id="ideas" class="chips" aria-label="Ideas to try"></div>
@@ -70,7 +70,7 @@
             <button class="btn" id="share-strategy" type="button" title="Copy a link that opens this strategy">Share</button>
           </div>
 
-          <details class="settings" id="settings" open>
+          <details class="settings" id="settings">
             <summary>Test settings</summary>
             <div class="fields">
               <label class="field wide">Market
@@ -132,10 +132,6 @@
                 <div class="chart-head"><h3>Drawdown</h3><div class="legend">How far below its previous high, strategy vs benchmark</div></div>
                 <canvas id="dd-chart" class="chart short"></canvas>
               </div>
-              <div class="card chart-card">
-                <div class="chart-head"><h3 id="second-title">Price &amp; trades</h3><div class="legend" id="second-legend"></div></div>
-                <canvas id="price-chart" class="chart"></canvas>
-              </div>
             </div>
 
             <div class="panel" id="tab-robust">
@@ -181,6 +177,10 @@
             </div>
 
             <div class="panel" id="tab-trades">
+              <div class="card chart-card">
+                <div class="chart-head"><h3 id="second-title">Price &amp; trades</h3><div class="legend" id="second-legend"></div></div>
+                <canvas id="price-chart" class="chart"></canvas>
+              </div>
               <div class="card">
                 <div class="chart-head"><h3 id="trades-title">Trades</h3><button class="btn small" type="button" id="export-trades">Export CSV</button></div>
                 <div class="table-wrap tall"><table id="trades"></table></div>
@@ -287,10 +287,10 @@
           <span class="row wrap"><button class="btn small" type="button" id="rb-copy">Copy</button><button class="btn small" type="button" id="rb-export">Export CSV</button><button class="btn small primary" type="button" id="rb-apply">I placed these trades</button></span></div>
         <div class="table-wrap"><table id="rb-plan"></table></div>
       </div>
-      <div class="card" id="ap-panel">
-        <div class="chart-head"><h3>Paper autopilot (Alpaca)</h3><span id="ap-pill" class="chip">…</span></div>
+      <details class="card fold" id="ap-panel">
+        <summary><span>Paper autopilot (Alpaca)</span><span id="ap-pill" class="chip">…</span></summary>
         <div id="ap-body"></div>
-      </div>
+      </details>
     </section>
 
     <!-- ============ LIVE ============ -->
@@ -347,7 +347,7 @@
       <span>For research and education only. Past results, real or simulated, don't predict future returns, and nothing here is investment advice.</span>
       <div class="appearance">
         <label for="theme-pick">Look</label>
-        <select id="theme-pick" aria-label="Theme"><option value="tide">Tide</option><option value="ink">Ink</option><option value="harbor">Harbor</option></select>
+        <select id="theme-pick" aria-label="Theme"><option value="ink">Ink</option><option value="tide">Tide</option><option value="harbor">Harbor</option></select>
         <select id="mode-pick" aria-label="Light or dark"><option value="">Match my device</option><option value="light">Light</option><option value="dark">Dark</option></select>
       </div>
     </footer>

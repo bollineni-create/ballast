@@ -53,8 +53,9 @@ function renderStatus(status = {}) {
 })();
 
 // A deep link like #library opens that section.
-const start = location.hash.slice(1);
-if ($$("#nav button").some((b) => b.dataset.view === start)) go(start);
+const fromHash = () => { const v = location.hash.slice(1); if ($$("#nav button").some((b) => b.dataset.view === v)) go(v); };
+fromHash();
+addEventListener("hashchange", fromHash);
 
 // Appearance: theme and light/dark, applied by theme.js before the page paints.
 for (const [id, key] of [["#theme-pick", "theme"], ["#mode-pick", "mode"]]) {

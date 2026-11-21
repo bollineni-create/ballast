@@ -1,7 +1,7 @@
 // Applies the saved look before the page paints (so there is no flash of the wrong
 // theme). Loaded as a plain script in <head>; everything else is a module.
 (function () {
-  var THEMES = ["tide", "ink", "harbor"], KEY = "slab:look";
+  var THEMES = ["ink", "tide", "harbor"], KEY = "slab:look";
   function read() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } }
   function apply(v) {
     var el = document.documentElement;
@@ -14,7 +14,7 @@
   var preview = { theme: q.get("theme") || now.theme, mode: q.get("mode") || now.mode };
   apply(preview);
   window.BallastTheme = {
-    get: function () { return { theme: preview.theme || "tide", mode: preview.mode || "" }; },
+    get: function () { return { theme: preview.theme || "ink", mode: preview.mode || "" }; },
     set: function (patch) {
       for (var k in patch) { now[k] = patch[k]; preview[k] = patch[k]; }
       try { localStorage.setItem(KEY, JSON.stringify(now)); } catch (e) { /* storage unavailable */ }

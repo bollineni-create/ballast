@@ -128,7 +128,7 @@ Typed text is read in your browser. A **picture** is read by Claude, so it needs
 
 ### Look and design system
 
-The **Look** menu at the bottom of the page switches between three themes (Tide, Ink, Harbor) and light or dark. `DESIGN.md` documents the design system, and `/design.html` shows every token and component.
+The **Look** menu at the bottom of the page switches between three themes (Ink, the plain default, plus Tide and Harbor) and light or dark. `DESIGN.md` documents the design system, and `/design.html` shows every token and component.
 
 ### How results are judged
 

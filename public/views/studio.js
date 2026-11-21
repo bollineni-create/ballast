@@ -13,13 +13,9 @@ import { lineChart, barChart, heat } from "../lib/charts.js";
 const SERIES = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
 const IDEAS = [
   ["Golden cross", "Buy SPY on a golden cross, sell on a death cross"],
-  ["Buy the dip", "Buy QQQ when RSI(2) is below 10, sell when RSI(2) is above 70, 5% stop loss"],
   ["60/40", "60/40 stocks and bonds, rebalanced quarterly"],
-  ["Risk parity", "Risk parity SPY, TLT and GLD, rebalanced monthly"],
   ["Momentum rotation", "Each month hold the top 2 of SPY, EFA, EEM, GLD and TLT by 6-month momentum, only if it's positive"],
   ["Long and short", "Buy SPY when the 50-day SMA crosses above the 200-day SMA, short when it crosses below, 15% stop loss"],
-  ["Toyota pullback", "Buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average, 8% trailing stop"],
-  ["Bitcoin trend", "Buy bitcoin when it crosses above its 50 day average, sell when it crosses below, 15% trailing stop"],
 ];
 
 let csv = null; // { name, symbol, bars } when the user tests on their own file
@@ -192,32 +188,26 @@ function render() {
   const m = r.metrics;
   $("#results").hidden = false;
 
-  // score
-  const C = 2 * Math.PI * 52;
+  // The verdict: a number, a word and one sentence. The five reasons open on request.
   const el = $("#score");
-  el.className = `card score g-${s.grade}`;
+  const open = el.querySelector("details")?.open;
+  el.className = "card score";
   el.innerHTML = `
-    <div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="arc" cx="60" cy="60" r="52" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg>
-      <div class="num"><div><b>${s.total}</b><br><span>of 100</span></div></div></div>
-    <div class="score-body">
-      <h2>${esc(s.word)}</h2>
-      <p class="sub">How far to trust this backtest. ${esc(s.headline)}</p>
+    <div class="score-num">${s.total}<small>/100</small></div>
+    <div><h2>${esc(s.word)}</h2><p class="sub">How far to trust this backtest. ${esc(s.headline)}</p></div>
+    <details${open ? " open" : ""}><summary>Why this score</summary>
       <div class="checks">${s.parts.map((p) => `<div class="${p.points < 7 ? "weak" : p.points < 13 ? "mid" : ""}"><span class="name">${esc(p.label)}</span><span class="meter" title="${p.points} of 20"><i style="width:${p.points * 5}%"></i></span><span class="why">${esc(p.text)}</span></div>`).join("")}</div>
-    </div>`;
-  requestAnimationFrame(() => el.querySelector(".arc")?.setAttribute("stroke-dashoffset", C * (1 - s.total / 100)));
+    </details>`;
 
+  // Four numbers up front; the rest live under Returns.
   const bh = r.benchLabel.replace("Buy & hold ", "");
   $("#metrics").innerHTML = [
     metric("Return per year", pct(m.cagr), tone(m.cagr), `${pct(m.benchCagr)} holding ${esc(bh)}`),
-    metric("Total return", pct(m.totalReturn, Math.abs(m.totalReturn) >= 1000 ? 0 : 1), tone(m.totalReturn), `${money(m.finalEquity)} from ${money(last.opts.capital)}`),
-    metric("Worst drop", pct(m.maxDrawdown), "neg", `${pct(m.benchMaxDrawdown)} holding ${esc(bh)}`),
-    metric("Sharpe", num(m.sharpe), tone(m.sharpe), `Sortino ${num(m.sortino)}`),
-    metric("Volatility", pct(m.vol), "", `${pct(m.benchVol)} holding ${esc(bh)}`),
-    metric("Time invested", pct(m.exposure, 0), "", `${num(m.years, 1)} years tested`),
+    metric("Worst drop", pct(m.maxDrawdown), "", `${pct(m.benchMaxDrawdown)} holding ${esc(bh)}`),
+    metric("Ended with", money(m.finalEquity), "", `from ${money(last.opts.capital)} over ${num(m.years, 0)} years`),
     r.kind === "signal"
-      ? metric("Trades", m.trades, "", m.trades ? `${pct(m.winRate, 0)} won · profit factor ${num(m.profitFactor)}` : "The buy rule never fired")
-      : metric("Orders", m.trades, "", `${num(m.trades / Math.max(m.years, 0.1), 1)} a year`),
-    metric("Beat buy & hold", `${m.yearsBeatBench} of ${m.yearsCount}`, "", "calendar years"),
+      ? metric("Trades", m.trades, "", m.trades ? `${pct(m.winRate, 0)} made money` : "The rules never fired")
+      : metric("Time invested", pct(m.exposure, 0), "", `${m.trades} orders`),
   ].join("");
 
   // Spot rules that fight each other: buy and sell both true, so it churns daily.
@@ -242,7 +232,7 @@ function renderOverview() {
   $("#equity-legend").innerHTML = `<span><i style="background:var(--c1)"></i>${esc(last.name)}</span><span><i class="dash" style="background:var(--quiet)"></i>${esc(r.benchLabel)}</span>`;
   lineChart($("#equity-chart"), {
     series: [
-      { time: t, values: from(r.equity), color: "--c1", label: "Strategy", width: 2, fill: true, fillAlpha: 0.08 },
+      { time: t, values: from(r.equity), color: "--c1", label: "Strategy", width: 1.8 },
       { time: t, values: from(r.bench), color: "--quiet", label: r.benchLabel.replace("Buy & hold", "Hold"), width: 1.2, dash: [4, 3] },
     ],
     lines: [{ time: hold.splitTime, label: "last 30%" }],
@@ -250,11 +240,18 @@ function renderOverview() {
   });
   lineChart($("#dd-chart"), {
     series: [
-      { time: t, values: from(drawdownSeries(r.equity, r.startIndex)), color: "--down", label: "Strategy", width: 1.4, fill: true, fillAlpha: 0.18 },
+      { time: t, values: from(drawdownSeries(r.equity, r.startIndex)), color: "--c1", label: "Strategy", width: 1.4, fill: true, fillAlpha: 0.1 },
       { time: t, values: from(drawdownSeries(r.bench, r.startIndex)), color: "--quiet", label: "Hold", width: 1, dash: [4, 3] },
     ],
     base: 0, max: 0, log: false, format: (v) => `${v.toFixed(0)}%`,
   });
+}
+
+// What it traded or held, drawn above the trade list.
+function renderHoldingsChart() {
+  const { result: r } = last;
+  const t = r.time.slice(r.startIndex);
+  const from = (a) => Array.from(a).slice(r.startIndex);
   if (r.kind === "signal") {
     const sym = r.traded[0];
     $("#second-title").textContent = r.traded.length > 1 ? `${sym} price & trades (first of ${r.traded.length})` : `${sym} price & trades`;
@@ -412,6 +409,11 @@ function renderReturns() {
   $("#months").innerHTML = `<thead><tr><th class="axis">Year</th>${M.map((x) => `<th>${x}</th>`).join("")}<th>Year</th></tr></thead><tbody>${[...rows].reverse().map((y) =>
     `<tr><th class="axis">${y.year}</th>${y.months.map((v) => (v == null ? `<td class="cell"></td>` : `<td class="cell" style="${heat(v, 8)}">${v.toFixed(1)}</td>`)).join("")}<td class="cell" style="${heat(y.total, 25)}"><strong>${y.total.toFixed(1)}</strong></td></tr>`).join("")}</tbody>`;
   $("#detail-metrics").innerHTML = [
+    metric("Total return", pct(m.totalReturn, Math.abs(m.totalReturn) >= 1000 ? 0 : 1), tone(m.totalReturn)),
+    metric("Sharpe", num(m.sharpe), "", `Sortino ${num(m.sortino)}`),
+    metric("Volatility", pct(m.vol), "", `${pct(m.benchVol)} for the benchmark`),
+    metric("Time invested", pct(m.exposure, 0)),
+    metric("Beat buy & hold", `${m.yearsBeatBench} of ${m.yearsCount}`, "", "calendar years"),
     metric("Best year", signed(m.bestYear), tone(m.bestYear)), metric("Worst year", signed(m.worstYear), tone(m.worstYear)),
     metric("Winning months", pct(m.positiveMonths, 0)), metric("Winning years", pct(m.positiveYears, 0)),
     metric("Longest time underwater", `${Math.round(m.longestDrawdownDays / 30.4)} mo`, "", `deepest ${day(m.ddPeakTime)} to ${day(m.ddTroughTime)}`),
@@ -430,6 +432,7 @@ function renderReturns() {
 // ---------- trades ----------
 function renderTrades() {
   const { result: r } = last;
+  renderHoldingsChart();
   if (r.kind === "signal") {
     $("#trades-title").textContent = "Trades";
     const multi = r.traded.length > 1, sides = r.trades.some((t) => t.side === "short");
@@ -539,7 +542,7 @@ function sharedStrategy() {
 
 // ---------- wiring ----------
 export function initStudio() {
-  $("#ideas").innerHTML = IDEAS.map(([label], k) => `<button type="button" class="chip" data-idea="${k}">${esc(label)}</button>`).join("");
+  $("#ideas").innerHTML = `<span>Try</span>${IDEAS.map(([label], k) => `<button type="button" data-idea="${k}">${esc(label)}</button>`).join("")}`;
   $("#symbol-hints").innerHTML = [...SYMBOLS.values()].map((x) => `<option value="${esc(x.symbol)}">${esc(x.name)}</option>`).join("");
 
   $("#chat-form").addEventListener("submit", (e) => {

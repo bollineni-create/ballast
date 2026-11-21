@@ -49,7 +49,7 @@ export function parseGoals(text) {
   const g = {};
   let m;
   const t = text.replace(/,(?=\d{3})/g, "");
-  if ((m = t.match(/\b(?:in|over|for|within|next)\s+(?:the\s+next\s+)?(\d{1,2})\s*(?:\+\s*)?(?:years?|yrs?)\b/i)) || (m = t.match(/\b(\d{1,2})[- ]years?\s+(?:horizon|time ?frame|goal|plan)/i))) g.years = Number(m[1]);
+  if ((m = t.match(/\b(?:in|over|for|within|next)\s+(?:the\s+next\s+)?(\d{1,2})\s*(?:\+\s*)?(?:years?|yrs?)\b/i)) || (m = t.match(/\b(\d{1,2})\s*(?:\+\s*)?[- ]?(?:years?|yrs?)\b(?!\s+(?:old|ago))/i))) g.years = Number(m[1]);
   if ((m = t.match(new RegExp(String.raw`\$?\s*${NUM}\s*(?:dollars\s*)?(?:a|per|each|every|\/)\s*(month|mo|year|yr)\b`, "i")))) g.monthly = Math.round(amount(m[1], m[2]) / (/^y/i.test(m[3]) ? 12 : 1));
   if ((m = t.match(new RegExp(String.raw`(?:reach|hit|get to|grow (?:it )?to|have|want|need|goal of|target of|goal is|target is|end up with)\D{0,25}\$?\s*${NUM}`, "i"))) && amount(m[1], m[2]) >= 1000) g.target = amount(m[1], m[2]);
   if ((m = t.match(/(?:more than|max(?:imum)?(?: of)?|at most|over|beyond|up to|only)\s+(?:an?\s+)?(\d{1,2})\s*%\s*(?:drop|loss|decline|drawdown|down|fall|dip|hit)/i))
