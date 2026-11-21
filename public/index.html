@@ -2,213 +2,317 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Ballast</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230f766e'/><path d='M6 22l6-7 5 4 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <meta name="description" content="Describe a trading strategy in plain English, test it on real market history, and see whether the result can be trusted." />
+  <meta name="theme-color" content="#061A19" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#F4F7F6" media="(prefers-color-scheme: light)" />
+  <link rel="icon" href="icons/mark.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M6 22l6-7 5 4 9-11" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <header class="bar">
+    <a class="brand" href="./" aria-label="Ballast">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><rect width="64" height="64" rx="14.5" class="mark-bg"/><path d="M19 11h10.5a9.5 9.5 0 0 1 0 19H19z" class="mark-top"/><path d="M19 30h14.5a11.5 11.5 0 0 1 0 23H19z" class="mark-base"/></svg>
       <span>Ballast</span>
-    </div>
-    <nav class="tabs" role="tablist">
-      <button class="tab active" data-view="build">Build &amp; Test</button>
-      <button class="tab" data-view="rebalance">Rebalance</button>
-      <button class="tab" data-view="monitor">Monitor</button>
-      <button class="tab" data-view="library">Library</button>
+    </a>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <button data-view="studio" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M8 15l3.5-4 3 2.5L19 8"/></svg><span>Studio</span></button>
+      <button data-view="compare"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17c3-9 5-9 8-4s5 3 8-6M4 7c3 6 6 8 9 8s5-1 7-3"/></svg><span>Compare</span></button>
+      <button data-view="portfolio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 7h14M5 7l-3 7a3.5 3.5 0 0 0 6 0L5 7Zm14 0-3 7a3.5 3.5 0 0 0 6 0l-3-7ZM8 21h8"/></svg><span>Portfolio</span></button>
+      <button data-view="live"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 4 12 2.5-6h5"/></svg><span>Live</span></button>
+      <button data-view="library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5zM10.5 4h4v16h-4zM16.5 6.5l3.5-1 3 13.5-3.5 1z" transform="translate(-1.5)"/></svg><span>Library</span></button>
     </nav>
-    <button id="sync-btn" class="pill sync-pill" type="button" hidden title="Keep strategies, portfolio, watchlist and alerts on all your devices">Sync</button>
-    <span id="ai-status" class="pill">…</span>
+    <div class="bar-end">
+      <span id="ai-status" class="chip" hidden></span>
+      <button id="sync-btn" class="chip action" type="button" hidden>Sync</button>
+    </div>
   </header>
 
   <main>
-    <!-- BUILD -->
-    <section id="view-build" class="view active">
-      <div class="build-grid">
-        <div class="panel chat">
-          <h2>Describe a strategy</h2>
-          <div id="chat-log" class="chat-log"></div>
-          <form id="chat-form" class="chat-form">
-            <textarea id="chat-input" rows="3" placeholder="e.g. Buy Toyota when it drops 10% from its 52-week high, sell when it gets back above the 50-day average, 8% trailing stop"></textarea>
-            <div class="row">
-              <label class="check" title="Change the rules on the right instead of starting a new strategy"><input type="checkbox" id="chat-refine" /> Edit current rules</label>
-              <button class="btn primary" type="submit" id="chat-send">Build</button>
-            </div>
-          </form>
-        </div>
-        <div class="panel editor">
-          <div class="panel-head">
-            <input id="strategy-name" class="name-input" value="Untitled strategy" aria-label="Strategy name" />
-            <div class="row">
-              <button class="btn" id="save-strategy">Save</button>
-              <button class="btn" id="deploy-strategy" title="Run these rules on live or simulated prices in Monitor">Paper trade</button>
-            </div>
+    <!-- ============ STUDIO ============ -->
+    <section id="view-studio" class="view active">
+      <div class="composer">
+        <form id="chat-form">
+          <label class="eyebrow" for="chat-input">Describe a strategy</label>
+          <div class="composer-box">
+            <textarea id="chat-input" rows="2" placeholder="Buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average, 8% trailing stop"></textarea>
+            <button class="btn primary" type="submit" id="chat-send">Build</button>
           </div>
-          <label class="rules-label" for="rules">Rules <span class="note">plain English, one per line. Edit freely; Cmd/Ctrl-Enter runs the test.</span></label>
-          <textarea id="rules" spellcheck="false" aria-label="Strategy rules"></textarea>
-          <div id="rules-check" class="rules-check" aria-live="polite"></div>
-          <details class="grammar">
-            <summary>What can rules say?</summary>
-            <div class="grammar-body">
-              <p><strong>Buy/sell:</strong> <code>Trade SPY</code> · <code>Buy when …</code> · <code>Sell when …</code> · <code>Stop loss 5%</code> · <code>Take profit 10%</code> · <code>Trailing stop 8%</code> · <code>Sell after 20 days</code> · <code>Position size 50%</code></p>
-              <p><strong>Portfolios:</strong> <code>Hold 60% SPY, 40% TLT</code> · <code>Rotate among SPY, EFA, TLT</code> + <code>Hold the top 1 by 126-day return</code> · <code>When price of SPY is below 200-day SMA of SPY, hold TLT instead</code> · <code>Rebalance monthly</code> · <code>Rebalance when any holding drifts 5% from its target</code></p>
-              <p><strong>Conditions:</strong> <em>is above / below / at least / at most</em>, <em>crosses above / below</em>, <em>is more than 5% below</em>, <em>closes down 3 days in a row</em>, joined with <em>and</em>, <em>or</em>, parentheses.</p>
-              <p><strong>Values:</strong> price, open, high, low, volume, N-day SMA / EMA / RSI / ATR / return / volatility / high / low, drawdown from N-day high, upper / middle / lower Bollinger Band (20, 2), MACD line / signal line / histogram (12, 26, 9), N-day average volume, … N days ago. Add <code>of ^VIX</code> (any symbol) to read another market.</p>
-              <p><strong>Markets:</strong> US stocks and ETFs (AAPL, SPY), indices (^GSPC, ^N225, ^FTSE, ^GDAXI), London .L, Frankfurt .DE, Paris .PA, Tokyo .T, Hong Kong .HK, India .NS, Sydney .AX, Toronto .TO and more, FX (EURUSD=X), futures (GC=F, CL=F) and crypto (BTC-USD). Names work too: Toyota, gold, the Nikkei, bonds.</p>
+          <div class="composer-row">
+            <label class="check" title="Change the strategy below instead of starting a new one"><input type="checkbox" id="chat-refine" /> Change the current strategy</label>
+            <span class="note">Plain English, any major market. ⌘↵ to build.</span>
+          </div>
+        </form>
+        <div id="ideas" class="chips" aria-label="Ideas to try"></div>
+        <div id="reply" class="reply" hidden></div>
+        <details id="history" class="history" hidden>
+          <summary>Conversation</summary>
+          <div id="chat-log" class="chat-log"></div>
+          <button class="link" type="button" id="chat-clear">Clear conversation</button>
+        </details>
+      </div>
+
+      <div class="studio">
+        <aside class="card rules-card">
+          <input id="strategy-name" class="title-input" value="Untitled strategy" spellcheck="false" aria-label="Strategy name" />
+          <label class="eyebrow" for="rules">Rules</label>
+          <textarea id="rules" spellcheck="false" rows="7" aria-describedby="rules-check"></textarea>
+          <div id="rules-check" class="rules-check"></div>
+          <div class="row wrap actions">
+            <button class="btn primary" id="run" type="button">Run test</button>
+            <button class="btn" id="save-strategy" type="button">Save</button>
+            <button class="btn" id="deploy-strategy" type="button" title="Run these rules on live prices with pretend money">Paper trade</button>
+            <button class="btn" id="share-strategy" type="button" title="Copy a link that opens this strategy">Share</button>
+          </div>
+
+          <details class="settings" id="settings" open>
+            <summary>Test settings</summary>
+            <div class="fields">
+              <label class="field wide">Market
+                <span class="row"><input id="symbol" value="SPY" list="symbol-hints" spellcheck="false" autocapitalize="characters" />
+                <button class="btn small" type="button" id="browse-markets">Browse</button></span>
+              </label>
+              <label class="field">History
+                <select id="history-years"><option value="max">All of it</option><option value="20">20 years</option><option value="10">10 years</option><option value="5">5 years</option><option value="3">3 years</option><option value="1">1 year</option></select>
+              </label>
+              <label class="field">Compare with
+                <input id="benchmark" placeholder="Buy &amp; hold" spellcheck="false" title="Leave empty to compare with buying and holding what the strategy trades, or type a symbol like SPY" />
+              </label>
+              <label class="field">Starting money
+                <input id="capital" type="number" min="100" step="100" value="10000" />
+              </label>
+              <label class="field" title="Fees plus slippage per trade, in hundredths of a percent">Cost per trade (bps)
+                <input id="cost" type="number" min="0" step="1" value="10" />
+              </label>
+              <label class="field">Currency
+                <select id="currency" title="Convert every market into one currency, so foreign stocks include exchange-rate moves">
+                  <option value="USD">US dollars</option><option value="EUR">Euros</option><option value="GBP">Pounds</option><option value="JPY">Yen</option><option value="">Each market's own</option>
+                </select>
+              </label>
+              <label class="field">Data
+                <select id="data-source"><option value="live">Live markets</option><option value="sim">Simulated</option></select>
+              </label>
+              <label class="check wide" title="Count dividends as reinvested (total return). Off tests price moves only."><input type="checkbox" id="dividends" checked /> Reinvest dividends</label>
+              <label class="field wide file">Or test on your own CSV
+                <input id="csv" type="file" accept=".csv,text/csv" />
+              </label>
             </div>
           </details>
-          <div class="controls">
-            <label>Data
-              <select id="data-source">
-                <option value="live" selected>Live market data</option>
-                <option value="sim">Simulated</option>
-              </select>
-            </label>
-            <label>History
-              <select id="history">
-                <option value="1">1 year</option>
-                <option value="3">3 years</option>
-                <option value="5">5 years</option>
-                <option value="10">10 years</option>
-                <option value="20">20 years</option>
-                <option value="max" selected>Max</option>
-              </select>
-            </label>
-            <label>Market <input id="symbol" value="SPY" size="14" list="symbol-hints" /></label>
-            <button class="btn" type="button" id="browse-markets">Browse markets</button>
-            <datalist id="symbol-hints"><option value="SPY"><option value="QQQ"><option value="AAPL"><option value="NVDA"><option value="^GSPC"><option value="^N225"><option value="^FTSE"><option value="^GDAXI"><option value="7203.T"><option value="ASML.AS"><option value="GC=F"><option value="EURUSD=X"><option value="BTC-USD"><option value="ETH-USD"></datalist>
-            <label>Capital <input id="capital" type="number" value="10000" min="100" step="100" /></label>
-            <label>Fees+slip (bps) <input id="cost" type="number" value="10" min="0" step="1" /></label>
-            <label class="file">Import CSV <input id="csv" type="file" accept=".csv,text/csv" /></label>
-            <button class="btn primary" id="run">Run backtest</button>
-          </div>
           <p id="data-note" class="note"></p>
+          <datalist id="symbol-hints"></datalist>
+        </aside>
+
+        <div class="results-col">
           <p id="error" class="error" hidden></p>
-        </div>
-      </div>
-      <dialog id="markets" class="markets">
-        <div class="panel-head">
-          <h3>Markets</h3>
-          <form id="market-search" class="row"><input id="market-query" placeholder="Ticker or name (Toyota, gold, DAX)" size="26" /><button class="btn small">Use</button><button type="button" class="btn small" id="markets-close">Close</button></form>
-        </div>
-        <nav id="market-tabs" class="tabs market-tabs"></nav>
-        <p id="market-note" class="note"></p>
-        <div class="table-wrap"><table id="market-list"></table></div>
-      </dialog>
-      <div id="results" class="results" hidden>
-        <div id="metrics" class="metrics"></div>
-        <p id="result-note" class="error" hidden></p>
-        <div class="panel">
-          <div class="panel-head"><h3>Equity curve</h3><span class="legend"><i style="background:var(--accent)"></i>Strategy <i style="background:var(--muted)"></i><span id="bench-legend">Buy &amp; hold</span></span></div>
-          <canvas id="equity-chart" class="chart"></canvas>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h3 id="second-title">Price &amp; trades</h3><span class="legend" id="second-legend"></span></div>
-          <canvas id="price-chart" class="chart"></canvas>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h3 id="trades-title">Trades</h3><button class="btn small" id="export-trades">Export CSV</button></div>
-          <div class="table-wrap"><table id="trades"></table></div>
+          <div id="loading" class="loading" hidden><span class="spinner"></span><span id="loading-text">Loading market history…</span></div>
+          <div id="results" hidden>
+            <section class="card score" id="score" aria-label="Robustness score"></section>
+            <div class="metrics" id="metrics"></div>
+            <p id="result-note" class="callout" hidden></p>
+
+            <div class="tabs" id="result-tabs" role="tablist">
+              <button data-tab="overview" class="active">Overview</button>
+              <button data-tab="robust">Robustness</button>
+              <button data-tab="returns">Returns</button>
+              <button data-tab="trades" id="tab-trades-btn">Trades</button>
+              <button data-tab="today">Today</button>
+            </div>
+
+            <div class="panel active" id="tab-overview">
+              <div class="card chart-card">
+                <div class="chart-head"><h3>Growth of your money</h3><div class="legend" id="equity-legend"></div></div>
+                <canvas id="equity-chart" class="chart tall"></canvas>
+              </div>
+              <div class="card chart-card">
+                <div class="chart-head"><h3>Drawdown</h3><div class="legend">How far below its previous high, strategy vs benchmark</div></div>
+                <canvas id="dd-chart" class="chart short"></canvas>
+              </div>
+              <div class="card chart-card">
+                <div class="chart-head"><h3 id="second-title">Price &amp; trades</h3><div class="legend" id="second-legend"></div></div>
+                <canvas id="price-chart" class="chart"></canvas>
+              </div>
+            </div>
+
+            <div class="panel" id="tab-robust">
+              <div class="card">
+                <h3>Then and now</h3>
+                <p class="note">Rules fitted to the past tend to fade. This splits the test at 70% and compares the two parts.</p>
+                <div class="table-wrap"><table id="holdout"></table></div>
+              </div>
+              <div class="card chart-card">
+                <div class="chart-head"><h3>Alternate histories</h3><div class="legend" id="mc-legend"></div></div>
+                <p class="note">The strategy's own daily returns, reshuffled in month-long blocks into 500 histories that could have happened. The band holds 9 out of 10 of them.</p>
+                <canvas id="mc-chart" class="chart"></canvas>
+                <div class="metrics compact" id="mc-stats"></div>
+              </div>
+              <div class="card">
+                <h3>Sensitivity</h3>
+                <p class="note">If the result only works at exactly these numbers, it is probably luck. Re-run it across nearby values and see how much of the grid still works.</p>
+                <div class="row wrap sweep-controls">
+                  <label class="field">Vary <select id="sweep-a"></select></label>
+                  <label class="field">and <select id="sweep-b"></select></label>
+                  <label class="field">Show <select id="sweep-metric"><option value="sharpe">Sharpe</option><option value="cagr">Return per year</option><option value="maxDrawdown">Max drawdown</option></select></label>
+                  <button class="btn primary" type="button" id="sweep-run">Run</button>
+                  <button class="btn" type="button" id="wf-run" title="Tune on the past, trade the next stretch, repeat">Walk-forward test</button>
+                </div>
+                <div id="sweep-out"></div>
+                <div id="wf-out"></div>
+              </div>
+            </div>
+
+            <div class="panel" id="tab-returns">
+              <div class="card chart-card">
+                <div class="chart-head"><h3>Year by year</h3><div class="legend" id="years-legend"></div></div>
+                <canvas id="years-chart" class="chart"></canvas>
+              </div>
+              <div class="card">
+                <h3>Month by month</h3>
+                <div class="table-wrap"><table id="months" class="heat"></table></div>
+              </div>
+              <div class="card">
+                <h3>The details</h3>
+                <div class="metrics compact" id="detail-metrics"></div>
+              </div>
+            </div>
+
+            <div class="panel" id="tab-trades">
+              <div class="card">
+                <div class="chart-head"><h3 id="trades-title">Trades</h3><button class="btn small" type="button" id="export-trades">Export CSV</button></div>
+                <div class="table-wrap tall"><table id="trades"></table></div>
+              </div>
+            </div>
+
+            <div class="panel" id="tab-today">
+              <div class="card" id="today"></div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- REBALANCE -->
-    <section id="view-rebalance" class="view">
-      <div class="monitor-bar panel">
-        <div>
-          <strong>Portfolio rebalancer</strong>
-          <span class="note">Advice only. Ballast never places orders; you review and place any trades yourself. Prices refresh every 15s. <span id="rb-updated"></span></span>
-        </div>
-        <span id="rb-status" class="pill">…</span>
+    <!-- ============ COMPARE ============ -->
+    <section id="view-compare" class="view">
+      <div class="view-head">
+        <div><h1>Compare</h1><p class="lede">Run several strategies over the same years and see them side by side.</p></div>
+        <div class="row wrap"><button class="btn primary" type="button" id="compare-run">Compare selected</button></div>
       </div>
-      <div id="rb-metrics" class="metrics"></div>
-      <div class="monitor-grid">
-        <div class="panel span-2">
-          <div class="panel-head"><h3>Holdings &amp; targets</h3><button class="btn small" id="rb-add">Add holding</button></div>
-          <div class="table-wrap"><table id="rb-holdings" class="editable"></table></div>
-          <p id="rb-warn" class="error" hidden></p>
+      <div class="card">
+        <p class="note" id="compare-hint">Pick up to six. They use the test settings from the Studio.</p>
+        <div id="compare-picks" class="picks"></div>
+      </div>
+      <p id="compare-error" class="error" hidden></p>
+      <div id="compare-out" hidden>
+        <div class="card chart-card">
+          <div class="chart-head"><h3>Growth of 100</h3><div class="legend" id="compare-legend"></div></div>
+          <canvas id="compare-chart" class="chart tall"></canvas>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h3>Rules</h3></div>
-          <div class="controls rb-settings">
-            <label>Cash ($) <input id="rb-cash" type="number" min="0" step="0.01" /></label>
-            <label title="Rebalance when any holding is this many percentage points away from its target">Drift band (pts) <input id="rb-band" type="number" min="0.5" step="0.5" /></label>
-            <label>Min trade ($) <input id="rb-min" type="number" min="0" step="1" /></label>
-            <label>Cash buffer (%) <input id="rb-buffer" type="number" min="0" max="50" step="0.5" /></label>
-            <label class="check"><input id="rb-fractional" type="checkbox" /> Fractional shares</label>
-          </div>
+        <div class="card"><div class="table-wrap"><table id="compare-table"></table></div></div>
+      </div>
+    </section>
+
+    <!-- ============ PORTFOLIO ============ -->
+    <section id="view-portfolio" class="view">
+      <div class="view-head">
+        <div><h1>Portfolio</h1><p class="lede">Keep real holdings on target. Ballast only suggests trades; you place them.</p></div>
+        <div class="row wrap"><span id="rb-status" class="chip">…</span><span class="note" id="rb-updated"></span></div>
+      </div>
+      <div class="metrics" id="rb-metrics"></div>
+      <div class="split">
+        <div class="card">
+          <div class="chart-head"><h3>Holdings</h3>
+            <span class="row wrap"><button class="btn small" type="button" id="rb-from-strategy" title="Copy today's target weights from the portfolio strategy open in the Studio">Use Studio targets</button><button class="btn small" type="button" id="rb-add">Add holding</button></span></div>
+          <div class="table-wrap"><table id="rb-holdings" class="inputs"></table></div>
+          <p id="rb-warn" class="callout" hidden></p>
+          <div id="rb-bars" class="weight-bars"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h3>Suggested trades</h3>
-            <div class="row"><label class="check"><input id="rb-force" type="checkbox" /> Show even when in band</label></div>
-          </div>
-          <div class="table-wrap"><table id="rb-plan"></table></div>
-          <div class="row" style="justify-content:flex-end;margin-top:12px">
-            <button class="btn small" id="rb-copy">Copy as text</button>
-            <button class="btn small" id="rb-export">Export CSV</button>
-            <button class="btn small primary" id="rb-apply" title="Update the share counts above after you've placed these trades yourself">I placed these trades</button>
+        <div class="card">
+          <h3>Rules</h3>
+          <div class="fields">
+            <label class="field">Cash<input id="rb-cash" type="number" min="0" step="any" /></label>
+            <label class="field" title="Rebalance when a holding is this many percentage points from its target">Band (± points)<input id="rb-band" type="number" min="0" step="0.5" /></label>
+            <label class="field">Smallest trade ($)<input id="rb-min" type="number" min="0" step="1" /></label>
+            <label class="field">Cash to keep (%)<input id="rb-buffer" type="number" min="0" max="50" step="0.5" /></label>
+            <label class="check wide"><input type="checkbox" id="rb-fractional" /> Allow fractional shares</label>
+            <label class="check wide"><input type="checkbox" id="rb-force" /> Show trades even when inside the band</label>
           </div>
         </div>
       </div>
-      <div class="panel" id="ap-panel" style="margin-top:16px">
-        <div class="panel-head"><h3>Alpaca paper autopilot</h3><span id="ap-pill" class="pill">…</span></div>
+      <div class="card">
+        <div class="chart-head"><h3>Suggested trades</h3>
+          <span class="row wrap"><button class="btn small" type="button" id="rb-copy">Copy</button><button class="btn small" type="button" id="rb-export">Export CSV</button><button class="btn small primary" type="button" id="rb-apply">I placed these trades</button></span></div>
+        <div class="table-wrap"><table id="rb-plan"></table></div>
+      </div>
+      <div class="card" id="ap-panel">
+        <div class="chart-head"><h3>Paper autopilot (Alpaca)</h3><span id="ap-pill" class="chip">…</span></div>
         <div id="ap-body"></div>
       </div>
     </section>
 
-    <!-- MONITOR -->
-    <section id="view-monitor" class="view">
-      <div class="monitor-bar panel">
-        <div>
-          <select id="feed-mode" aria-label="Feed">
-            <option value="live" selected>Live market data</option>
-            <option value="sim">Simulated feed</option>
-          </select>
-          <span class="note">Updates every <select id="tick-speed"><option value="2000">2s</option><option value="5000" selected>5s</option><option value="15000">15s</option><option value="60000">60s</option></select>. <span id="feed-note"></span> Paper trading only. No real orders are sent.</span>
+    <!-- ============ LIVE ============ -->
+    <section id="view-live" class="view">
+      <div class="view-head">
+        <div><h1>Live</h1><p class="lede">Watch markets, set price alerts and rehearse strategies with pretend money.</p></div>
+        <div class="row wrap">
+          <select id="feed-mode" aria-label="Price feed"><option value="live">Live prices</option><option value="sim">Simulated feed</option></select>
+          <select id="tick-speed" aria-label="Update speed"><option value="2000">Every 2 s</option><option value="5000" selected>Every 5 s</option><option value="15000">Every 15 s</option><option value="60000">Every minute</option></select>
+          <button class="btn small" type="button" id="feed-toggle">Pause</button>
         </div>
-        <button class="btn" id="feed-toggle">Pause</button>
       </div>
-      <div class="monitor-grid">
-        <div class="panel">
-          <div class="panel-head"><h3>Watchlist</h3>
-            <form id="watch-form" class="row"><input id="watch-symbol" placeholder="Symbol or name" size="12" /><button class="btn small">Add</button></form>
-          </div>
+      <p class="note" id="feed-note"></p>
+      <div class="split">
+        <div class="card">
+          <div class="chart-head"><h3>Watchlist</h3>
+            <form id="watch-form" class="row"><input id="watch-symbol" placeholder="Symbol or name" spellcheck="false" list="symbol-hints" /><button class="btn small" type="submit">Add</button></form></div>
           <div class="table-wrap"><table id="watchlist"></table></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h3>Price alerts</h3></div>
+        <div class="card">
+          <h3>Price alerts</h3>
           <form id="alert-form" class="row wrap">
-            <select id="alert-symbol"></select>
-            <select id="alert-dir"><option value="above">above</option><option value="below">below</option></select>
-            <input id="alert-price" type="number" step="0.01" placeholder="Price" />
-            <button class="btn small">Add alert</button>
+            <select id="alert-symbol" aria-label="Symbol"></select>
+            <select id="alert-dir" aria-label="Direction"><option value="above">rises above</option><option value="below">falls below</option></select>
+            <input id="alert-price" type="number" step="any" placeholder="Price" aria-label="Price" />
+            <button class="btn small" type="submit">Add</button>
           </form>
           <ul id="alerts" class="list"></ul>
         </div>
-        <div class="panel span-2">
-          <div class="panel-head"><h3>Paper strategies</h3></div>
-          <div class="table-wrap"><table id="deployments"></table></div>
-        </div>
-        <div class="panel span-2">
-          <div class="panel-head"><h3>Activity</h3><button class="btn small" id="clear-activity">Clear</button></div>
-          <ul id="activity" class="list activity"></ul>
-        </div>
+      </div>
+      <div class="card">
+        <h3>Paper trading</h3>
+        <div class="table-wrap"><table id="deployments"></table></div>
+      </div>
+      <div class="card">
+        <div class="chart-head"><h3>Activity</h3><button class="btn small" type="button" id="clear-activity">Clear</button></div>
+        <ul id="activity" class="list activity"></ul>
       </div>
     </section>
 
-    <!-- LIBRARY -->
+    <!-- ============ LIBRARY ============ -->
     <section id="view-library" class="view">
-      <h2>Starter strategies</h2>
-      <div id="library" class="cards"></div>
-      <h2>Your saved strategies</h2>
+      <div class="view-head">
+        <div><h1>Library</h1><p class="lede">Starting points across the world's markets, and the strategies you've saved.</p></div>
+      </div>
+      <h2 class="section-title">Yours</h2>
       <div id="saved" class="cards"></div>
+      <h2 class="section-title">Starters</h2>
+      <div id="library-tags" class="chips"></div>
+      <div id="library" class="cards"></div>
     </section>
+
+    <footer class="foot">For research and education only. Past results, real or simulated, don't predict future returns, and nothing here is investment advice.</footer>
   </main>
 
-  <footer class="footer">For research and education. Backtests use historical or simulated data and do not predict future results. This is not investment advice.</footer>
+  <dialog id="markets" class="sheet">
+    <div class="sheet-head"><h3>Markets</h3><button class="link" type="button" id="markets-close" aria-label="Close">✕</button></div>
+    <form id="market-search" class="row"><input id="market-query" placeholder="Type any symbol or name: AAPL, Toyota, gold, ^N225, EURUSD=X" spellcheck="false" /><button class="btn small primary" type="submit">Use</button></form>
+    <div class="chips" id="market-tabs"></div>
+    <p class="note" id="market-note"></p>
+    <div class="table-wrap tall"><table id="market-list"></table></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
 
   <script src="/sync/kit.js"></script>
   <script type="module" src="app.js"></script>

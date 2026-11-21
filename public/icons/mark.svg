@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Ballast: a B that carries its weight low. -->
+  <rect width="64" height="64" rx="14.5" fill="#0A2826"/>
+  <path d="M19 11h10.5a9.5 9.5 0 0 1 0 19H19z" fill="#2DD4BF" opacity=".5"/>
+  <path d="M19 30h14.5a11.5 11.5 0 0 1 0 23H19z" fill="#2DD4BF"/>
+</svg>

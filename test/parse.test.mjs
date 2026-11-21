@@ -61,8 +61,27 @@ test("canonical rules read back to the identical spec", () => {
   }
 });
 
+test("shorts, volatility targets and inverse-volatility weights round-trip", () => {
+  const cases = [
+    ["Short SPY when the 50 day SMA crosses below the 200 day SMA, cover when it crosses back above, 8% stop loss",
+      "Trade SPY\nShort when 50-day SMA crosses below 200-day SMA\nCover when 50-day SMA crosses above 200-day SMA\nStop loss 8%"],
+    ["Buy QQQ when RSI is below 30, sell when RSI is above 60, short when RSI is above 80 and cover when RSI is below 50",
+      "Trade QQQ\nBuy when 14-day RSI is below 30\nSell when 14-day RSI is above 60\nShort when 14-day RSI is above 80\nCover when 14-day RSI is below 50"],
+    ["60/40 SPY TLT rebalanced monthly, target 10% volatility", "Hold 60% SPY, 40% TLT\nTarget 10% volatility\nRebalance monthly"],
+    ["risk parity SPY, TLT, GLD", "Hold 33.3333% SPY, 33.3333% TLT, 33.3333% GLD\nWeight by inverse volatility\nRebalance monthly"],
+    ["Buy SPY when price is above the 200 day SMA, sell when price is below the 200 day SMA, 12% volatility target, take profit 30%",
+      "Trade SPY\nBuy when price is above 200-day SMA\nSell when price is below 200-day SMA\nTake profit 30%\nTarget 12% volatility"],
+  ];
+  for (const [english, rules] of cases) {
+    const r = parseStrategy(english);
+    assert.deepEqual(r.unparsed, [], english);
+    assert.equal(describe(r.spec), rules);
+    assert.equal(describe(parseStrategy(rules).spec), rules);
+  }
+});
+
 test("nonsense is rejected with a helpful message", () => {
-  assert.throws(() => parseStrategy("make me rich"), (e) => e instanceof ParseError && /buy rule or a portfolio/.test(e.message));
+  assert.throws(() => parseStrategy("make me rich"), (e) => e instanceof ParseError && /buy rule, a short rule or a portfolio/.test(e.message));
   assert.throws(() => parseStrategy(""), ParseError);
 });
 

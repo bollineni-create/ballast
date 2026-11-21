@@ -1,0 +1,15 @@
+{
+  "name": "Ballast",
+  "short_name": "Ballast",
+  "description": "Describe a trading strategy in plain English, test it on real market history, and see whether the result can be trusted.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#061A19",
+  "theme_color": "#061A19",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

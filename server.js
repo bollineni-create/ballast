@@ -26,7 +26,10 @@ const send = (res, status, data, type = "application/json") => {
   res.end(type === "application/json" ? JSON.stringify(data) : data);
 };
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+const MIME = {
+  ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
+  ".png": "image/png", ".woff2": "font/woff2", ".webmanifest": "application/manifest+json",
+};
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);

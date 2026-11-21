@@ -14,8 +14,11 @@
 // A missing `sym` means "the asset being traded" (or each asset, when ranking).
 //
 // Strategies
-//   signal:   { kind: "signal", symbols, entry, exit, stopLoss, takeProfit, trailingStop, maxHold, size }
-//   allocate: { kind: "allocate", symbols, weights, rotate: { top, by, absolute }, rebalance, band, riskOff: { when, hold } }
+//   signal:   { kind: "signal", symbols, entry, exit, shortEntry, shortExit, stopLoss, takeProfit, trailingStop,
+//               maxHold, size, volTarget }                      entry and/or shortEntry is set
+//   allocate: { kind: "allocate", symbols, weights, rotate: { top, by, absolute }, rebalance, band,
+//               riskOff: { when, hold }, weighting: "invvol"|null, volTarget }
+//   volTarget is an annualized volatility as a fraction (0.12 = 12%).
 
 import { sma, ema, rsi, atr, bollinger, macd, highest, lowest } from "./indicators.js";
 
@@ -108,7 +111,7 @@ export function referencedSymbols(spec) {
     if (x.sym) out.add(x.sym);
     for (const v of Object.values(x)) if (typeof v === "object") walk(v);
   };
-  walk(spec.entry); walk(spec.exit); walk(spec.rotate); walk(spec.riskOff?.when);
+  walk(spec.entry); walk(spec.exit); walk(spec.shortEntry); walk(spec.shortExit); walk(spec.rotate); walk(spec.riskOff?.when);
   if (spec.riskOff?.hold) out.add(spec.riskOff.hold);
   if (spec.weights) Object.keys(spec.weights).forEach((s) => out.add(s));
   return [...out];
@@ -124,7 +127,8 @@ export function warmup(spec) {
     if (x.t === "streak") w = Math.max(w, x.n + 1);
     for (const v of Object.values(x)) if (typeof v === "object") walk(v);
   };
-  walk(spec.entry); walk(spec.exit); walk(spec.rotate); walk(spec.riskOff?.when);
+  walk(spec.entry); walk(spec.exit); walk(spec.shortEntry); walk(spec.shortExit); walk(spec.rotate); walk(spec.riskOff?.when);
+  if (spec.volTarget || spec.weighting) w = Math.max(w, 61);
   return w;
 }
 
@@ -184,13 +188,16 @@ export function describe(spec) {
   const lines = [];
   if (spec.kind === "signal") {
     if (spec.symbols?.length) lines.push(`Trade ${spec.symbols.join(", ")}`);
-    lines.push(`Buy when ${condText(spec.entry)}`);
+    if (spec.entry) lines.push(`Buy when ${condText(spec.entry)}`);
     if (spec.exit) lines.push(`Sell when ${condText(spec.exit)}`);
+    if (spec.shortEntry) lines.push(`Short when ${condText(spec.shortEntry)}`);
+    if (spec.shortExit) lines.push(`Cover when ${condText(spec.shortExit)}`);
     if (spec.stopLoss) lines.push(`Stop loss ${pctOf(spec.stopLoss)}%`);
     if (spec.takeProfit) lines.push(`Take profit ${pctOf(spec.takeProfit)}%`);
     if (spec.trailingStop) lines.push(`Trailing stop ${pctOf(spec.trailingStop)}%`);
     if (spec.maxHold) lines.push(`Sell after ${spec.maxHold} days`);
     if (spec.size) lines.push(`Position size ${pctOf(spec.size)}%`);
+    if (spec.volTarget) lines.push(`Target ${pctOf(spec.volTarget)}% volatility`);
   } else {
     if (spec.rotate) {
       lines.push(`Rotate among ${spec.symbols.join(", ")}`);
@@ -199,7 +206,9 @@ export function describe(spec) {
     } else {
       lines.push(`Hold ${Object.entries(spec.weights).map(([s, w]) => `${pctOf(w)}% ${s}`).join(", ")}`);
     }
+    if (spec.weighting === "invvol") lines.push("Weight by inverse volatility");
     if (spec.riskOff) lines.push(`When ${condText(spec.riskOff.when)}, hold ${spec.riskOff.hold || "cash"} instead`);
+    if (spec.volTarget) lines.push(`Target ${pctOf(spec.volTarget)}% volatility`);
     if (spec.rebalance) lines.push(`Rebalance ${spec.rebalance}`);
     if (spec.band) lines.push(`Rebalance when any holding drifts ${pctOf(spec.band)}% from its target`);
   }
@@ -215,14 +224,19 @@ export function summarize(spec) {
       spec.stopLoss && `${an(pctOf(spec.stopLoss))} ${pctOf(spec.stopLoss)}% stop loss`, spec.takeProfit && `${an(pctOf(spec.takeProfit))} ${pctOf(spec.takeProfit)}% take profit`,
       spec.trailingStop && `${an(pctOf(spec.trailingStop))} ${pctOf(spec.trailingStop)}% trailing stop`, spec.maxHold && `${an(spec.maxHold)} ${spec.maxHold}-day time limit`,
     ].filter(Boolean);
-    return `Buys ${who} when ${condText(spec.entry)}${spec.exit ? `, and sells when ${condText(spec.exit)}` : ""}.${risk.length ? ` Exits early on ${risk.join(", ")}.` : ""}`;
+    const long = spec.entry ? `Buys ${who} when ${condText(spec.entry)}${spec.exit ? `, and sells when ${condText(spec.exit)}` : ""}.` : "";
+    const short = spec.shortEntry ? ` ${spec.entry ? "Shorts it" : `Shorts ${who}`} when ${condText(spec.shortEntry)}${spec.shortExit ? `, and covers when ${condText(spec.shortExit)}` : ""}.` : "";
+    const vt = spec.volTarget ? ` Sizes each position for about ${pctOf(spec.volTarget)}% annual volatility.` : "";
+    return `${long}${short}${risk.length ? ` Exits early on ${risk.join(", ")}.` : ""}${vt}`.trim();
   }
   const what = spec.rotate
     ? `Holds the top ${spec.rotate.top} of ${spec.symbols.join(", ")} by ${exprText(spec.rotate.by)}${spec.rotate.absolute ? " (only while it is positive)" : ""}`
     : `Holds ${Object.entries(spec.weights).map(([s, w]) => `${pctOf(w)}% ${s}`).join(", ")}`;
   const when = spec.rebalance ? `, rebalanced ${spec.rebalance}` : spec.band ? `, rebalanced when a holding drifts ${pctOf(spec.band)}% from target` : "";
   const off = spec.riskOff ? ` Switches to ${spec.riskOff.hold || "cash"} while ${condText(spec.riskOff.when)}.` : "";
-  return `${what}${when}.${off}`;
+  const wt = spec.weighting === "invvol" ? " Calmer assets get bigger weights (inverse volatility)." : "";
+  const vt = spec.volTarget ? ` Holds some cash when markets are rough, aiming for about ${pctOf(spec.volTarget)}% annual volatility.` : "";
+  return `${what}${when}.${wt}${off}${vt}`;
 }
 
 // A short default name, e.g. "SMA 50/200 cross on SPY" or "60/40 SPY/TLT".
@@ -232,13 +246,15 @@ export function nameFor(spec) {
     if (spec.rotate) return `Top ${spec.rotate.top} of ${spec.symbols.length} by ${exprText(spec.rotate.by)}`;
     const w = Object.entries(spec.weights);
     const base = w.length === 1 ? `Hold ${w[0][0]}` : `${w.map(([, v]) => Math.round(v * 100)).join("/")} ${w.map(([s]) => s).join("/")}`;
+    if (spec.weighting === "invvol") return `Risk-weighted ${w.map(([s]) => s).join("/")}`;
     return spec.riskOff ? `${base}, ${spec.riskOff.hold || "cash"} when risk-off` : base;
   }
-  const e = spec.entry;
+  const e = spec.entry || spec.shortEntry;
+  const short = spec.entry ? "" : "Short ";
   const label = (x) => (x.t === "ind" ? INDICATORS[x.ind].label(x).replace(/^\d+-day /, "").replace(/ \(.*\)$/, "") : x.t === "price" ? (x.sym ? `${x.sym}` : "Price") : "");
-  if (e.t === "cross" && e.a.t === "ind" && e.b.t === "ind" && e.a.ind === e.b.ind) return `${e.a.ind.toUpperCase()} ${e.a.n}/${e.b.n} cross${on}`;
-  if (e.t === "streak") return `${e.n} ${e.dir} days${on}`;
+  if (e.t === "cross" && e.a.t === "ind" && e.b.t === "ind" && e.a.ind === e.b.ind) return `${short}${e.a.ind.toUpperCase()} ${e.a.n}/${e.b.n} cross${on}`;
+  if (e.t === "streak") return `${short}${e.n} ${e.dir} days${on}`;
   const first = e.t === "and" || e.t === "or" ? e.c[0] : e;
   const what = first.a ? label(first.a) || label(first.b) : "";
-  return `${what ? `${what} ` : ""}${first.t === "cross" ? "cross" : "rule"}${on}`.replace(/^./, (c) => c.toUpperCase());
+  return `${short}${what ? `${what} ` : ""}${first.t === "cross" ? "cross" : "rule"}${on}`.replace(/^./, (c) => c.toUpperCase());
 }

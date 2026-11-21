@@ -5,8 +5,12 @@ import { describe, summarize, nameFor } from "./spec.js";
 
 // Rule lines a follow-up instruction replaces rather than adds to.
 const REPLACES = [
-  [/\b(?:buy|enter|go long)\b[^.]*\b(?:when|if|on|after)\b/i, /^buy when/i],
-  [/\b(?:sell|exit|get out)\b[^.]*\b(?:when|if|on)\b/i, /^sell when/i],
+  [/(?<!to\s)\bcover\b[^.]*\b(?:when|if|on)\b/i, /^cover when/i],
+  [/\b(?:short|bet against)\b[^.]*\b(?:when|if|on)\b/i, /^short when/i],
+  [/\b(?:buy|enter|go long)\b(?!\s+to\s+cover)[^.]*\b(?:when|if|on|after)\b/i, /^buy when/i],
+  [/\b(?:sell|exit|get out)\b(?!\s+short)[^.]*\b(?:when|if|on)\b/i, /^sell when/i],
+  [/\bvol(?:atility)?\b[^.]*\d\s*%|\d\s*%[^.]*\bvol(?:atility)?\b/i, /^target \d[\d.]*% volatility/i],
+  [/\binverse[- ]vol|risk[- ]parity|risk[- ]weight/i, /^weight by/i],
   [/\btrailing\b/i, /^trailing stop/i],
   [/(?<!trailing\s)\bstop\b(?!\s+trailing)/i, /^stop loss/i],
   [/\b(?:take[- ]?profit|target)\b/i, /^take profit/i],
@@ -16,7 +20,7 @@ const REPLACES = [
   [/^(?:use|switch to|try|trade|run it on|test it on|test on|on)\s+\S+(?:\s+instead)?\s*$/i, /^trade /i],
 ];
 
-const REMOVE = /\b(?:remove|drop|delete|no|without|get rid of)\s+(?:the\s+)?(stop loss|stop|take profit|target|trailing stop|time limit|sell rule|position size)/i;
+const REMOVE = /\b(?:remove|drop|delete|no|without|get rid of)\s+(?:the\s+)?(stop loss|stop|take profit|target|trailing stop|time limit|sell rule|position size|short rule|cover rule|volatility target|vol target)/i;
 
 function merge(prompt, current) {
   let lines = current.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -25,7 +29,8 @@ function merge(prompt, current) {
     const what = rm[1].toLowerCase();
     const re = what.startsWith("trailing") ? /^trailing stop/i : what.startsWith("stop") ? /^stop loss/i
       : /take profit|target/.test(what) ? /^take profit/i : what === "time limit" ? /^sell after/i
-      : what === "sell rule" ? /^sell when/i : /^position size/i;
+      : what === "sell rule" ? /^sell when/i : what === "short rule" ? /^(?:short|cover) when/i : what === "cover rule" ? /^cover when/i
+      : /vol/.test(what) ? /^target \d[\d.]*% volatility/i : /^position size/i;
     lines = lines.filter((l) => !re.test(l));
     prompt = prompt.replace(rm[0], " ");
   }

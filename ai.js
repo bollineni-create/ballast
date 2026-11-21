@@ -29,6 +29,9 @@ STRATEGY TYPE 1: buy/sell rules (long only, daily bars)
   Trailing stop <N>%                      optional, below the highest high since entry
   Sell after <N> days                     optional time limit, in trading days
   Position size <N>%                      optional, % of equity per position (default: split evenly across traded symbols)
+  Short when <condition>                  optional, alone or alongside Buy when: sells short
+  Cover when <condition>                  optional, closes a short (stops, targets and time limits apply to shorts too)
+  Target <N>% volatility                  optional, shrinks positions when the asset's volatility runs above N% a year
 
 STRATEGY TYPE 2: portfolios
   Hold <N>% <SYMBOL>, <N>% <SYMBOL>...    fixed weights summing to 100
@@ -40,6 +43,8 @@ STRATEGY TYPE 2: portfolios
   When <condition>, hold <SYMBOL> instead       or: When <condition>, hold cash instead   (checked daily)
   Rebalance daily|weekly|monthly|quarterly|yearly
   Rebalance when any holding drifts <N>% from its target
+  Weight by inverse volatility            optional ("risk parity"): calmer assets get bigger weights
+  Target <N>% volatility                  optional: holds some cash when the portfolio's volatility runs above N% a year
 
 CONDITIONS
   <value> is above|below|at least|at most <value>
@@ -65,7 +70,7 @@ SYMBOLS use Yahoo Finance tickers: US stocks/ETFs plain (AAPL, SPY), indices wit
 ${SYMBOL_HINTS}
 Map names to tickers ("Toyota" -> 7203.T, "the S&P 500" -> SPY when traded or as a market filter, "bonds" -> TLT, "gold" -> GLD for portfolios or GC=F for futures). Pick the most liquid sensible ticker.
 
-If the idea needs something the language can't express (shorting, intraday bars, options, fundamentals, news, leverage), write the closest version and say exactly what you changed in the explanation. Never invent syntax.
+If the idea needs something the language can't express (intraday bars, options, fundamentals, news, leverage above 1x), write the closest version and say exactly what you changed in the explanation. Never invent syntax.
 
 Reply with exactly:
 NAME: <short strategy name>

@@ -5,6 +5,8 @@ import { toSeries } from "../public/lib/data.js";
 import { runBacktest } from "../public/lib/backtest.js";
 import { parseStrategy } from "../public/lib/parse.js";
 import { backtestSpec, signalRules } from "../public/lib/engine.js";
+import { holdout, monteCarlo, findParams, gridFor, sweep, walkForward, score, withParam } from "../public/lib/lab.js";
+import { periodTable, curveStats } from "../public/lib/metrics.js";
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${a} != ${b}`);
 
@@ -20,7 +22,8 @@ test("single-asset rules match the original code engine exactly", () => {
     const a = backtestSpec(spec, { X: bars }, { fallbackSymbol: "X", capital: 10000, costBps: 10 });
     const b = runBacktest(toSeries(bars), code, { capital: 10000, feeBps: 5, slippageBps: 5 });
     assert.equal(a.trades.length, b.trades.length, english);
-    for (const k of ["totalReturn", "maxDrawdown", "sharpe", "exposure", "buyHold"]) close(a.metrics[k], b.metrics[k]);
+    // (Sharpe is left out: it now annualizes by the data's real bars per year, not a fixed 252.)
+    for (const k of ["totalReturn", "maxDrawdown", "exposure", "buyHold"]) close(a.metrics[k], b.metrics[k]);
   }
 });
 
@@ -116,4 +119,160 @@ test("buys never spend cash a pending sell on a closed market hasn't raised yet"
     assert.ok(cash > -1, `cash ${cash.toFixed(2)} after ${o.side} ${o.symbol} on day ${o.index}`);
   }
   assert.ok(r.orders.some((o) => o.symbol === "AAA" && o.side === "buy"));
+});
+
+// ---------- engine: shorts, sizing, currencies ----------
+const ohlc = (closes) => closes.map((c, i) => ({ time: day(i), open: c, high: c, low: c, close: c, volume: 1e6 }));
+
+test("a short makes money when the price falls, and its stop caps the loss when it rises", () => {
+  const fall = ohlc(Array.from({ length: 40 }, (_, i) => 100 - i));
+  let r = backtestSpec(parseStrategy("Short AAA when price is below 100").spec, { AAA: fall }, { costBps: 0 });
+  assert.equal(r.trades.length, 1);
+  assert.equal(r.trades[0].side, "short");
+  // signal on day 1 (99), short at day 2's open (98), marked at 61 on the last day
+  close(r.trades[0].returnPct, ((98 - 61) / 98) * 100);
+  close(r.equity.at(-1), 10000 * (1 + (98 - 61) / 98));
+  assert.ok(r.exposure.at(-2) < 0);
+
+  const rise = ohlc(Array.from({ length: 40 }, (_, i) => 100 + i));
+  r = backtestSpec(parseStrategy("Short AAA when price is above 100, 10% stop loss").spec, { AAA: rise }, { costBps: 0 });
+  assert.equal(r.trades[0].reason, "stop loss");
+  // shorted at 102, stop at 112.2; the next bar opens beyond it at 113, so it fills there
+  close(r.trades[0].returnPct, ((102 - 113) / 102) * 100);
+});
+
+test("long and short rules reverse into each other", () => {
+  const wave = ohlc(Array.from({ length: 200 }, (_, i) => 100 + 20 * Math.sin(i / 10)));
+  const r = backtestSpec(parseStrategy("Buy AAA when price crosses above 100, short when price crosses below 100").spec, { AAA: wave }, { costBps: 0 });
+  assert.ok(r.trades.length >= 5);
+  assert.ok(r.trades.some((t) => t.side === "long") && r.trades.some((t) => t.side === "short"));
+  assert.ok(r.trades.slice(0, -1).every((t) => t.reason === "reversal"));
+  for (let k = 1; k < r.trades.length; k++) assert.equal(r.trades[k].entryIndex, r.trades[k - 1].exitIndex);
+});
+
+test("a volatility target shrinks positions in a wild market", () => {
+  const wild = simulatedBars("WILD", 600).map((b, i) => ({ ...b, close: b.close * (i % 2 ? 1.04 : 0.96) }));
+  const calm = parseStrategy("Hold 100% AAA, rebalance monthly").spec;
+  const target = parseStrategy("Hold 100% AAA, rebalance monthly, target 10% volatility").spec;
+  const a = backtestSpec(calm, { AAA: wild }), b = backtestSpec(target, { AAA: wild });
+  assert.ok(a.metrics.vol > 40);
+  assert.ok(b.metrics.vol < a.metrics.vol * 0.5, `${b.metrics.vol} vs ${a.metrics.vol}`);
+  assert.ok(b.now.cashTarget > 30);
+});
+
+test("inverse-volatility weights favour the calmer asset", () => {
+  const A = simulatedBars("CALM", 500).map((b, i) => ({ ...b, close: 100 * (1 + 0.002 * (i % 2)) }));
+  const B = simulatedBars("ROUGH", 500).map((b, i) => ({ ...b, close: 100 * (1 + 0.02 * (i % 2)) }));
+  const r = backtestSpec(parseStrategy("risk parity AAA, BBB").spec, { AAA: A, BBB: B });
+  const last = r.orders.at(-1).index;
+  assert.ok(r.weightHistory.AAA[last] > 85, `${r.weightHistory.AAA[last]}`);
+});
+
+test("foreign markets are converted into the base currency", () => {
+  const flat = ohlc(Array.from({ length: 30 }, () => 100));
+  const fx = Array.from({ length: 30 }, (_, i) => ({ time: day(i), close: 1 + i * 0.01 }));
+  const r = backtestSpec(parseStrategy("Hold 100% AAA").spec, { AAA: flat }, { costBps: 0, fx: { AAA: fx } });
+  // bought at day 1's rate (1.01), worth 1.29 at the end: all of the gain is currency
+  close(r.equity.at(-1), 10000 * (1.29 / 1.01));
+  close(r.bench.at(-1), 10000 * 1.29);
+});
+
+test("an outside benchmark doesn't change the strategy's own result", () => {
+  const S = simulatedBars("STRAT", 400), B = simulatedBars("BENCH", 300);
+  const spec = parseStrategy("Buy AAA when RSI is below 40, sell when RSI is above 60").spec;
+  const a = backtestSpec(spec, { AAA: S }), b = backtestSpec(spec, { AAA: S, BBB: B }, { benchmark: "BBB" });
+  assert.deepEqual(a.equity, b.equity);
+  assert.equal(b.benchLabel, "Buy & hold BBB");
+  assert.notDeepEqual(a.bench, b.bench);
+});
+
+test("results report what to do today", () => {
+  const up = ohlc(Array.from({ length: 60 }, (_, i) => 100 + i));
+  let r = backtestSpec(parseStrategy("Buy AAA when price is above 120, sell when price is below 110, 5% trailing stop").spec, { AAA: up });
+  assert.deepEqual([r.now.actions[0].held, r.now.actions[0].action], ["long", "hold"]);
+  close(r.now.actions[0].stops.trail, 159 * 0.95);
+  r = backtestSpec(parseStrategy("Buy AAA when price is above 158").spec, { AAA: up });
+  assert.deepEqual([r.now.actions[0].held, r.now.actions[0].action], ["flat", "buy"]); // fires on the last bar
+  r = backtestSpec(parseStrategy("Hold 60% AAA, 40% BBB, rebalance yearly").spec, { AAA: up, BBB: ohlc(Array.from({ length: 60 }, () => 50)) });
+  assert.deepEqual(r.now.targets.map((t) => t.target), [60, 40]);
+  assert.ok(r.now.targets[0].current > 60);
+});
+
+test("`from` keeps the strategy out of the market until that date", () => {
+  const bars = simulatedBars("FROM", 500);
+  const spec = parseStrategy("Buy when the 10-day SMA crosses above the 30-day SMA, sell when it crosses back below").spec;
+  const r = backtestSpec(spec, { X: bars }, { fallbackSymbol: "X", from: bars[250].time });
+  assert.equal(r.startIndex, 250);
+  assert.ok(r.equity.slice(0, 251).every((v) => v === 10000));
+  assert.ok(r.trades.every((t) => t.entryIndex > 250));
+  assert.equal(r.bench[250], 10000);
+});
+
+// ---------- statistics ----------
+test("monthly and yearly tables compound back to the total return", () => {
+  const bars = simulatedBars("TABLE", 700);
+  const time = bars.map((b) => b.time), eq = bars.map((b) => b.close);
+  const rows = periodTable(time, eq);
+  const viaYears = rows.reduce((a, y) => a * (1 + y.total / 100), 1);
+  const viaMonths = rows.flatMap((y) => y.months.filter((m) => m != null)).reduce((a, m) => a * (1 + m / 100), 1);
+  close(viaYears, eq.at(-1) / eq[0]);
+  close(viaMonths, eq.at(-1) / eq[0]);
+  const s = curveStats(time, eq);
+  close(Math.pow(1 + s.cagr / 100, s.years), eq.at(-1) / eq[0]);
+  assert.ok(s.maxDrawdown < 0 && s.longestDays > 0);
+});
+
+// ---------- lab ----------
+test("holdout, Monte Carlo and the score work on a real run", () => {
+  const bars = simulatedBars("LAB", 1500);
+  const r = backtestSpec(parseStrategy("Buy when the 20-day SMA crosses above the 50-day SMA, sell when it crosses back below").spec, { X: bars }, { fallbackSymbol: "X" });
+  const h = holdout(r);
+  assert.ok(h.splitIndex > 1000 && h.splitIndex < 1100);
+  close((1 + h.early.totalReturn / 100) * (1 + h.late.totalReturn / 100), r.equity.at(-1) / r.equity[0]);
+  const mc = monteCarlo(r, { runs: 200 });
+  assert.equal(mc.bands.length, 5);
+  assert.ok(mc.cagr.p5 <= mc.cagr.p50 && mc.cagr.p50 <= mc.cagr.p95);
+  assert.ok(mc.maxDrawdown.p5 <= mc.maxDrawdown.p95 && mc.maxDrawdown.p95 <= 0);
+  assert.deepEqual(monteCarlo(r, { runs: 200 }).cagr, mc.cagr); // seeded: the same every time
+  const s = score(r, h, mc);
+  assert.equal(s.parts.length, 5);
+  assert.ok(s.total >= 0 && s.total <= 100 && s.total === s.parts.reduce((a, p) => a + p.points, 0));
+});
+
+test("buy and hold scores in the middle, never as robust", () => {
+  const bars = simulatedBars("HOLD", 1500);
+  const r = backtestSpec(parseStrategy("Hold 100% AAA").spec, { AAA: bars });
+  const s = score(r, holdout(r), monteCarlo(r, { runs: 200 }));
+  assert.ok(s.parts.find((p) => p.key === "edge").points <= 11);
+  assert.ok(s.total < 80);
+});
+
+test("parameters are found once each, and a sweep reproduces the base run", async () => {
+  const spec = parseStrategy("Buy when the 20-day SMA crosses above the 50-day SMA and RSI is below 70, sell when the 20-day SMA crosses below the 50-day SMA, 8% stop loss").spec;
+  const params = findParams(spec);
+  assert.deepEqual(params.map((p) => p.label), ["20-day SMA", "50-day SMA", "RSI level 70 (buy rule)", "14-day RSI", "Stop loss %"]);
+  assert.equal(params[0].paths.length, 2); // the buy rule and the sell rule share it
+  const moved = withParam(spec, params[0], 10);
+  assert.equal(moved.entry.c[0].a.n, 10);
+  assert.equal(moved.exit.a.n, 10);
+  assert.equal(spec.entry.c[0].a.n, 20);
+  const bars = { X: simulatedBars("SWEEP", 900) }, opts = { fallbackSymbol: "X" };
+  const a = { param: params[0], values: gridFor(params[0], 5) }, b = { param: params[1], values: gridFor(params[1], 5) };
+  assert.ok(a.values.includes(20) && a.values.every((v) => Number.isInteger(v) && v >= 2));
+  const sw = await sweep(spec, bars, opts, a, b);
+  assert.equal(sw.grid.length, b.values.length);
+  close(sw.here.cagr, backtestSpec(spec, bars, opts).metrics.cagr);
+  assert.ok(sw.stability >= 0 && sw.stability <= 1);
+});
+
+test("walk-forward only reports results from windows the tuning hadn't seen", async () => {
+  const spec = parseStrategy("Buy when the 20-day SMA crosses above the 50-day SMA, sell when it crosses back below").spec;
+  const bars = { X: simulatedBars("WALK", 1500) }, opts = { fallbackSymbol: "X", capital: 10000 };
+  const p = findParams(spec)[0];
+  const wf = await walkForward(spec, bars, opts, p, [10, 20, 30], { folds: 4 });
+  assert.equal(wf.picks.length, 4);
+  assert.ok(wf.picks.every((k) => [10, 20, 30].includes(k.value) && k.to > k.from));
+  assert.equal(wf.time[0], bars.X[600].time); // starts after the 40% training stretch
+  assert.equal(wf.time.length, wf.equity.length);
+  assert.ok(Number.isFinite(wf.out.cagr) && Number.isFinite(wf.same.cagr));
 });

@@ -79,16 +79,22 @@ async function yahooHistory(symbol, years) {
   const period1 = Math.floor(startOf(years) / 1000);
   const r = await yahooChart(symbol, `period1=${period1}&period2=${Math.floor(Date.now() / 1000)}`, "1d");
   const q = r.indicators?.quote?.[0] || {};
+  // Yahoo's adjusted close folds dividends into the price. `adj` (adjusted / plain close)
+  // lets the page build total-return bars; it is left off when there are no dividends.
+  const adj = r.indicators?.adjclose?.[0]?.adjclose;
   const offset = (r.meta.gmtoffset || 0) * 1000;
   const bars = [];
   (r.timestamp || []).forEach((t, k) => {
     const close = q.close?.[k];
     if (close == null) return;
-    bars.push({
+    const bar = {
       time: utcMidnight(dayOf(t * 1000 + offset)),
       open: q.open[k] ?? close, high: q.high[k] ?? close, low: q.low[k] ?? close, close,
       volume: q.volume?.[k] ?? 0,
-    });
+    };
+    const f = adj?.[k] > 0 && close > 0 ? adj[k] / close : 1;
+    if (Math.abs(f - 1) > 1e-6) bar.adj = Math.round(f * 1e6) / 1e6;
+    bars.push(bar);
   });
   return { bars, currency: r.meta.currency, name: r.meta.longName || r.meta.shortName || symbol, exchange: r.meta.exchangeName };
 }
