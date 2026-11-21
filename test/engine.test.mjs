@@ -318,3 +318,18 @@ test("the check-up flags concentration and a broken drawdown limit, and projecti
   close(flat.end.p50, 1000 + 2400);
   assert.equal(flat.chance, 100);
 });
+
+test("goals and cash are read without confusing them with holdings", () => {
+  const g = (t) => parseHoldings(t).goals;
+  assert.equal(g("I have $50,000 in VTI and want to reach $1M in 20 years").target, 1000000);
+  assert.equal(g("I want $5,000 in VTI. Goal of 750k").target, 750000);
+  assert.equal(g("need 500 a month, want $2 million").target, 2000000);
+  assert.equal(g("I have 50 AAPL").target, undefined);
+  assert.equal(g("want income from dividends").income, true);
+  // percent cash next to share counts, and the reverse
+  const w = toWeights(parseHoldings("50 AAPL, 10% cash"), { AAPL: 180 });
+  close(w.total, 10000); close(w.cashWeight, 0.1); close(w.weights.AAPL, 0.9);
+  assert.deepEqual(parseHoldings("100 shares of Toyota, 7203.T 50, $2,000 in 0700.HK").positions, [{ symbol: "7203.T", shares: 150 }, { symbol: "0700.HK", value: 2000 }]);
+  const p = parseHoldings("60% VTI, 30% BND, 10% cash");
+  close(toWeights(p).cashWeight, 0.1);
+});

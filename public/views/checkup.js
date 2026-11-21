@@ -1,6 +1,6 @@
 // Check-up: share a portfolio (typed, pasted or as a screenshot) and goals, and see
 // how the mix has behaved, where its risk sits and how it lines up with the goals.
-import { $, esc, money, pct, num, tone, store, state, settings, on, emit, showing, toast, postJson, fetchQuotes, loadBars } from "../core.js";
+import { $, esc, money, pct, num, tone, store, state, settings, on, emit, showing, toast, postJson, fetchQuotes, loadBars, MINOR, STABLE } from "../core.js";
 import { parseHoldings, toWeights } from "../lib/holdings.js";
 import { checkup } from "../lib/checkup.js";
 import { describe } from "../lib/spec.js";
@@ -12,13 +12,14 @@ let image = null; // data URL of the attached screenshot
 let read = null; // { positions, cash, cashWeight, weights, total, notes, data } from the last analysis
 let report = null;
 let seq = 0;
+let stated = {}; // goals said in words that have no field of their own (income)
 
 const GOAL_FIELDS = [["#ck-years", "years"], ["#ck-monthly", "monthly"], ["#ck-target", "target"], ["#ck-drop", "maxDrop"]];
 function goalsFromFields() {
   const g = {};
   for (const [id, k] of GOAL_FIELDS) { const v = Number($(id).value); if (v > 0) g[k] = v; }
   if ($("#ck-risk").value) g.risk = $("#ck-risk").value;
-  return g;
+  return { ...stated, ...g };
 }
 function fillGoals(g) {
   for (const [id, k] of GOAL_FIELDS) $(id).value = g[k] ?? "";
@@ -64,7 +65,9 @@ async function analyze() {
       status(image ? "Reading your picture…" : "Reading what you wrote…");
       const ai = await postJson("api/portfolio/read", { text, image });
       const seen = new Set(positions.map((p) => p.symbol));
-      positions = [...positions, ...ai.positions.filter((p) => !seen.has(p.symbol))];
+      // A row with a share count or a value doesn't also need its percent.
+      const rows = ai.positions.map((p) => (p.weight != null && (p.shares != null || p.value != null) ? { symbol: p.symbol, shares: p.shares, value: p.value } : p));
+      positions = [...positions, ...rows.filter((p) => !seen.has(p.symbol))];
       cash ||= ai.cash || 0;
       goals = { ...ai.goals, ...goals };
       notes = ai.notes || "";
@@ -72,13 +75,29 @@ async function analyze() {
     if (mine !== seq) return;
     if (!positions.length) throw new Error(image ? "No holdings could be read from that picture. Try a clearer screenshot of the positions list, or type them." : "Couldn't find any holdings in that. Try a list like \"50 AAPL, $5,000 in VTI, 10% bonds\".");
     if (positions.some((p) => p.weight != null) && positions.some((p) => p.weight == null)) throw new Error("Some holdings are given in percent and others in shares or dollars. Use one or the other for all of them.");
+    if (positions.every((p) => p.weight != null) && cash > 0) throw new Error("The holdings are in percent but the cash is in dollars. Give the cash as a percent too, like \"10% cash\".");
 
     status("Getting prices…");
     const needPrice = positions.filter((p) => p.weight == null).map((p) => p.symbol); // values too, so they can become share counts
     const prices = {};
     if (needPrice.length) {
       const { quotes } = await fetchQuotes(needPrice);
-      for (const s of needPrice) if (quotes[s]) prices[s] = quotes[s].price;
+      // Prices come in each market's own currency (London in pence): bring them into one.
+      const base = settings.currency || "USD", unit = {};
+      for (const s of needPrice) {
+        const c0 = quotes[s]?.currency;
+        if (!c0 || /=X$/.test(s)) continue;
+        const [c, div] = MINOR[c0] || [STABLE[c0] || c0, 1];
+        unit[s] = { c, div };
+      }
+      const pairs = [...new Set(Object.values(unit).filter((u) => u.c !== base).map((u) => `${u.c}${base}=X`))];
+      const fxq = pairs.length ? (await fetchQuotes(pairs)).quotes : {};
+      for (const s of needPrice) {
+        if (!quotes[s]) continue;
+        const u = unit[s] || { c: base, div: 1 };
+        const rate = u.c === base ? 1 : fxq[`${u.c}${base}=X`]?.price;
+        if (rate) prices[s] = (quotes[s].price / u.div) * rate; // no rate: left unpriced and reported below
+      }
     }
     const w = toWeights({ positions, cash, cashWeight }, prices);
     if (w.missing.length) throw new Error(`Couldn't get a price for ${w.missing.join(", ")}. Check the symbol, or give that holding as a dollar amount.`);
@@ -88,6 +107,7 @@ async function analyze() {
     const data = await loadBars(spec, syms[0], { ...settings, years: "max", benchmark: "", source: "live" });
     if (mine !== seq) return;
     read = { positions, cash, prices, ...w, notes, data, spec, unread: typed.unread };
+    stated = goals.income ? { income: true } : {};
     fillGoals({ ...goalsFromFields(), ...goals });
     store.set("checkup", { text });
     run();

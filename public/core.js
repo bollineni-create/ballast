@@ -159,8 +159,8 @@ export function liveHistory(symbol, years = 3) {
 }
 
 // Prices quoted in a currency's small unit (London stocks trade in pence).
-const MINOR = { GBp: ["GBP", 100], GBX: ["GBP", 100], ILA: ["ILS", 100], ZAc: ["ZAR", 100] };
-const STABLE = { USDT: "USD", USDC: "USD" };
+export const MINOR = { GBp: ["GBP", 100], GBX: ["GBP", 100], ILA: ["ILS", 100], ZAc: ["ZAR", 100] };
+export const STABLE = { USDT: "USD", USDC: "USD" };
 
 // Folds dividends into the bars so buy & hold includes them (total return).
 const totalReturn = (bars) => bars.map((b) => (b.adj ? { ...b, open: b.open * b.adj, high: b.high * b.adj, low: b.low * b.adj, close: b.close * b.adj } : b));

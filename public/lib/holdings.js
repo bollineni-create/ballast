@@ -8,7 +8,7 @@ const STOP = new Set("I A AN THE MY OF IN AND AT TO ON IS AM HAVE OWN HOLD GOT W
 const amount = (n, unit) => Number(String(n).replace(/,/g, "")) * ({ k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6 }[(unit || "").toLowerCase()] || 1);
 const NUM = String.raw`(\d[\d,]*(?:\.\d+)?)\s*(k|mm|m|thousand|million)?\b`;
 
-function symbolIn(text) {
+function findSymbol(text) {
   for (const raw of text.match(/\^?[A-Za-z][A-Za-z0-9.\-=]{0,11}/g) || []) {
     if (STOP.has(raw.toUpperCase())) continue;
     // Tickers are written in capitals, or are the only word left once the numbers are gone.
@@ -21,8 +21,12 @@ function symbolIn(text) {
 
 function position(chunk) {
   let m;
-  const c = chunk.trim();
+  let c = chunk.trim();
   if (!c) return null;
+  // Numeric tickers (7203.T, 0700.HK) come out first, so their digits aren't read as a quantity.
+  const numeric = c.match(/\b\d{4,6}\.[A-Z]{1,3}\b/);
+  if (numeric) c = c.replace(numeric[0], " ");
+  const symbolIn = (text) => numeric?.[0] || findSymbol(text);
   if ((m = c.match(new RegExp(String.raw`\$\s*${NUM}`, "i"))) || (m = c.match(new RegExp(String.raw`${NUM}\s*(?:dollars|usd)`, "i")))) {
     const rest = c.replace(m[0], " ");
     if (/\bcash\b/i.test(rest)) return { cash: amount(m[1], m[2]) };
@@ -51,7 +55,11 @@ export function parseGoals(text) {
   const t = text.replace(/,(?=\d{3})/g, "");
   if ((m = t.match(/\b(?:in|over|for|within|next)\s+(?:the\s+next\s+)?(\d{1,2})\s*(?:\+\s*)?(?:years?|yrs?)\b/i)) || (m = t.match(/\b(\d{1,2})\s*(?:\+\s*)?[- ]?(?:years?|yrs?)\b(?!\s+(?:old|ago))/i))) g.years = Number(m[1]);
   if ((m = t.match(new RegExp(String.raw`\$?\s*${NUM}\s*(?:dollars\s*)?(?:a|per|each|every|\/)\s*(month|mo|year|yr)\b`, "i")))) g.monthly = Math.round(amount(m[1], m[2]) / (/^y/i.test(m[3]) ? 12 : 1));
-  if ((m = t.match(new RegExp(String.raw`(?:reach|hit|get to|grow (?:it )?to|have|want|need|goal of|target of|goal is|target is|end up with)\D{0,25}\$?\s*${NUM}`, "i"))) && amount(m[1], m[2]) >= 1000) g.target = amount(m[1], m[2]);
+  // The target is the first amount of $1,000 or more after a goal verb that isn't a holding
+  // ("want $5,000 in VTI") or a monthly amount ("want to add $2,000 a month").
+  for (const x of t.matchAll(new RegExp(String.raw`(?:reach|hit|get to|grow (?:it )?to|end up with|goal of|target of|goal is|target is|want(?: to have)?|need(?: to have)?)\D{0,25}?\$?\s*${NUM}(?!\s*(?:%|shares?\b|sh\b|in\s+[A-Za-z^]|of\b|a\b|per\b|each\b|every\b|\/|worth\b))`, "gi"))) {
+    if (amount(x[1], x[2]) >= 1000) { g.target = amount(x[1], x[2]); break; }
+  }
   if ((m = t.match(/(?:more than|max(?:imum)?(?: of)?|at most|over|beyond|up to|only)\s+(?:an?\s+)?(\d{1,2})\s*%\s*(?:drop|loss|decline|drawdown|down|fall|dip|hit)/i))
     || (m = t.match(/(?:drop|loss|lose|losing|decline|drawdown|fall|down)\D{0,25}?(\d{1,2})\s*%/i))) g.maxDrop = Number(m[1]);
   if (/\b(?:conservative|cautious|low[- ]risk|safe|capital preservation|risk[- ]averse)\b/i.test(t)) g.risk = "low";
@@ -106,7 +114,9 @@ export function toWeights({ positions, cash = 0, cashWeight = 0 }, prices = {}) 
     }
   }
   const invested = Object.values(dollars).reduce((a, b) => a + b, 0);
-  const total = invested + cash;
+  // Cash may be dollars ("3k cash") or a share of the whole ("10% cash") next to share counts.
+  const pctCash = !cash && cashWeight > 0 && cashWeight < 100 ? cashWeight / 100 : 0;
+  const total = pctCash ? invested / (1 - pctCash) : invested + cash;
   if (!(total > 0)) return { weights: {}, cashWeight: 0, total: null, missing };
-  return { weights: Object.fromEntries(Object.entries(dollars).map(([s, v]) => [s, v / total])), cashWeight: cash / total, total, missing };
+  return { weights: Object.fromEntries(Object.entries(dollars).map(([s, v]) => [s, v / total])), cashWeight: pctCash || cash / total, total, missing };
 }
