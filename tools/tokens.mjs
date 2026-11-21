@@ -18,7 +18,7 @@ const SCALES = {
   // motion
   "--ease": "cubic-bezier(.32, .72, 0, 1)", "--t-fast": ".15s", "--t-base": ".25s", "--t-slow": ".8s",
   // brand: the logo keeps these in every theme
-  "--brand-wash": "#0A2826", "--brand-tint": "#2DD4BF",
+  "--brand-wash": "#0B1220", "--brand-tint": "#7AA2FF",
   // layout
   "--side": "max(20px, env(safe-area-inset-left), env(safe-area-inset-right))", "--page": "1320px",
 };

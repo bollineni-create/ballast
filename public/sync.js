@@ -77,6 +77,6 @@ export function startSync() {
   };
   engine.onStatus(draw);
   S.site.onChange(draw);
-  btn.addEventListener("click", () => S.openPanel({ app: "ballast", tint: "#2DD4BF" }));
+  btn.addEventListener("click", () => S.openPanel({ app: "ballast", tint: "#7AA2FF" }));
   engine.start().catch(() => {});
 }
