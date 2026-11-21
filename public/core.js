@@ -35,6 +35,7 @@ export const state = {
   server: false, // a Ballast server answers (Mac app, npm start, or the website)
   autopilot: false, // only the local server holds Alpaca keys
   ai: false,
+  reader: false, // the server can read a portfolio from a picture (needs Claude)
   chat: store.get("chat", []),
   saved: store.get("saved", []),
   watchlist: store.get("watchlist", ["SPY", "AAPL", "BTC-USD"]),

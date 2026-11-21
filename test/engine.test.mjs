@@ -276,3 +276,45 @@ test("walk-forward only reports results from windows the tuning hadn't seen", as
   assert.equal(wf.time.length, wf.equity.length);
   assert.ok(Number.isFinite(wf.out.cagr) && Number.isFinite(wf.same.cagr));
 });
+
+// ---------- portfolio check-up ----------
+import { parseHoldings, toWeights } from "../public/lib/holdings.js";
+import { checkup, project, classOf } from "../public/lib/checkup.js";
+
+test("typed portfolios and goals are read", () => {
+  const r = parseHoldings("50 AAPL, 20 shares of MSFT, $5,000 in VTI and 3k cash. Retire in 20 years, adding $500 a month, want to reach $1M, can't stomach more than a 25% drop");
+  assert.deepEqual(r.positions, [{ symbol: "AAPL", shares: 50 }, { symbol: "MSFT", shares: 20 }, { symbol: "VTI", value: 5000 }]);
+  assert.equal(r.cash, 3000);
+  assert.deepEqual(r.goals, { years: 20, monthly: 500, target: 1000000, maxDrop: 25 });
+  const w = toWeights(r, { AAPL: 340, MSFT: 500 });
+  assert.equal(w.total, 35000);
+  close(w.weights.AAPL, 17000 / 35000);
+  close(w.cashWeight, 3000 / 35000);
+  assert.deepEqual(toWeights(r, { AAPL: 340 }).missing, ["MSFT"]);
+  const p = parseHoldings("VTI 60%\nVXUS 25%\nBND 15%\nconservative, 10 year horizon");
+  assert.deepEqual(toWeights(p).weights, { VTI: 0.6, VXUS: 0.25, BND: 0.15 });
+  assert.deepEqual(p.goals, { years: 10, risk: "low" });
+  assert.deepEqual(parseHoldings("apple 100 shares; 1,500 shares of nvda; bitcoin $12,000").positions.map((x) => x.symbol), ["AAPL", "NVDA", "BTC-USD"]);
+  assert.deepEqual(parseHoldings("what should I do").positions, []);
+});
+
+test("the check-up flags concentration and a broken drawdown limit, and projections are ordered", () => {
+  const wild = simulatedBars("WILDCO", 1500), calm = simulatedBars("BND", 1500).map((b, i) => ({ ...b, open: 100, high: 100, low: 100, close: 100 + (i % 2) * 0.05 }));
+  const c = checkup({ weights: { WILDCO: 0.7, BND: 0.2 }, bars: { WILDCO: wild, BND: calm }, total: 50000, goals: { years: 10, monthly: 500, target: 200000, maxDrop: 5 } });
+  assert.equal(classOf("WILDCO"), "Single stocks");
+  close(c.cashWeight, 10);
+  close(c.holdings.reduce((a, h) => a + h.riskShare, 0), 100, 1e-6);
+  assert.ok(c.holdings[0].riskShare > 99);
+  const titles = c.findings.map((x) => x.title).join(" | ");
+  assert.match(titles, /WILDCO is 70% of the portfolio/);
+  assert.match(titles, /further than your 5% limit/);
+  assert.match(titles, /% of futures reach your target/);
+  const p = c.projection;
+  assert.equal(p.bands[0].length, 11);
+  assert.ok(p.end.p10 <= p.end.p50 && p.end.p50 <= p.end.p90);
+  assert.equal(p.paid, 50000 + 500 * 120);
+  // with no market moves, the projection is just the money paid in
+  const flat = project(new Float64Array(500), { start: 1000, years: 2, monthly: 100, target: 3000 });
+  close(flat.end.p50, 1000 + 2400);
+  assert.equal(flat.chance, 100);
+});

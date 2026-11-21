@@ -5,6 +5,7 @@ import { initCompare } from "./views/compare.js";
 import { initPortfolio } from "./views/portfolio.js";
 import { initLive } from "./views/live.js";
 import { initLibrary } from "./views/library.js";
+import { initCheckup } from "./views/checkup.js";
 import { startSync } from "./sync.js";
 
 $("#nav").addEventListener("click", (e) => {
@@ -33,6 +34,8 @@ function renderStatus(status = {}) {
     // The website has a server for prices and the builder, but the autopilot and its
     // Alpaca keys only ever run in the Mac app.
     state.autopilot = status.autopilot !== false;
+    // Reading a screenshot needs a server that has the reader and a Claude key.
+    state.reader = Boolean(status.portfolioReader && status.ai);
   } catch { /* no server: opened from disk */ }
   document.documentElement.classList.toggle("website", !state.server);
   renderStatus(status);
@@ -42,6 +45,7 @@ function renderStatus(status = {}) {
   initStudio();
   initLive();
   initPortfolio();
+  initCheckup();
   initCompare();
   initLibrary();
   startSync();
@@ -51,3 +55,13 @@ function renderStatus(status = {}) {
 // A deep link like #library opens that section.
 const start = location.hash.slice(1);
 if ($$("#nav button").some((b) => b.dataset.view === start)) go(start);
+
+// Appearance: theme and light/dark, applied by theme.js before the page paints.
+for (const [id, key] of [["#theme-pick", "theme"], ["#mode-pick", "mode"]]) {
+  const el = $(id);
+  el.value = window.BallastTheme?.get()[key] ?? el.value;
+  el.addEventListener("change", () => {
+    window.BallastTheme?.set({ [key]: el.value });
+    $$("canvas").forEach((c) => c._draw?.()); // charts read their colors when they draw
+  });
+}

@@ -113,6 +113,23 @@ Claude (`claude-opus-5-5`, with server-side refusal fallback) translates the ide
 
 You can also import a CSV with `Date` and `Close` columns (`Open`, `High`, `Low` and `Volume` are optional), or switch Data to Simulated for offline use. Saved strategies, the watchlist, alerts and paper positions are stored in your browser. On a phone, add the site to your home screen to open it like an app.
 
+### Portfolio check-up
+
+At the top of **Portfolio**, type or paste what you hold and what you're aiming for ("50 AAPL, 20 MSFT, $5,000 in VTI, 3k cash. Retiring in 20 years, adding $500 a month, want $1M, can't take more than a 25% drop"), or add a screenshot of your brokerage account. Positions can be share counts, dollar amounts or percentages, and names like "Apple" or "bonds" work. Ballast then shows:
+
+- how that mix has done (return per year, worst drop, worst year) on real history, rebalanced yearly;
+- where the risk sits: each holding's share of the money next to its share of the swings, the asset-class mix, and how closely the holdings move together;
+- plain-language findings against your goals, such as a holding that is too large, a past drop deeper than you said you could take, or too much stock for a short horizon;
+- where it could be by your date: 500 futures built from the mix's own daily returns, with your monthly additions, and the share of them that reach your target.
+
+Goals can be edited in the fields under the box. From there the holdings can be copied into the rebalancer or opened in the Studio. It reports facts and odds from past prices; it does not tell you what to buy or sell.
+
+Typed text is read in your browser. A **picture** is read by Claude, so it needs a Ballast server with an Anthropic key (the Mac app or `npm start`); it is sent for that one reading and not stored. The check-up itself is kept only on your device and isn't synced.
+
+### Look and design system
+
+The **Look** menu at the bottom of the page switches between three themes (Tide, Ink, Harbor) and light or dark. `DESIGN.md` documents the design system, and `/design.html` shows every token and component.
+
 ### How results are judged
 
 The robustness score adds five checks worth 20 points each: Sharpe ratio against buy & hold; worst drop against buy & hold; Sharpe in the last 30% of history against the first 70%; the t-statistic of returns, scaled down when there are fewer than 30 trades; and the return per year that 1 in 20 reshuffled histories fell below. 80 and up reads Robust, 65 Promising, 50 Mixed, 35 Fragile. It measures how far to believe the backtest, not how much money the strategy will make.

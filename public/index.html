@@ -10,7 +10,9 @@
   <link rel="icon" href="icons/mark.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="theme.js"></script>
 </head>
 <body>
   <header class="bar">
@@ -219,6 +221,46 @@
         <div><h1>Portfolio</h1><p class="lede">Keep real holdings on target. Ballast only suggests trades; you place them.</p></div>
         <div class="row wrap"><span id="rb-status" class="chip">…</span><span class="note" id="rb-updated"></span></div>
       </div>
+      <section class="card checkup" id="checkup" aria-label="Portfolio check-up">
+        <div class="chart-head"><h3>Check-up</h3><span class="note" id="ck-how"></span></div>
+        <p class="note">Say what you hold and what you're aiming for, or add a screenshot of your account. Ballast shows how that mix has behaved, where its risk sits and how it lines up with your goals.</p>
+        <form id="ck-form">
+          <div class="composer-box">
+            <textarea id="ck-text" rows="3" aria-label="Your positions and goals" placeholder="50 AAPL, 20 MSFT, $5,000 in VTI, 3k cash. Retiring in 20 years, adding $500 a month, want to reach $1M, can't take more than a 25% drop."></textarea>
+            <div class="row wrap">
+              <label class="btn" for="ck-file" id="ck-file-label">Add a picture</label>
+              <input type="file" id="ck-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+              <button class="btn primary" type="submit" id="ck-run">Analyze</button>
+            </div>
+          </div>
+          <div id="ck-shot" class="shot" hidden><img id="ck-thumb" alt="Your screenshot" /><span class="note" id="ck-shot-note"></span><button type="button" class="link" id="ck-shot-remove">Remove</button></div>
+        </form>
+        <div id="ck-status" class="loading" hidden><span class="spinner"></span><span id="ck-status-text"></span></div>
+        <p id="ck-error" class="error" hidden></p>
+        <div id="ck-out" hidden>
+          <div id="ck-read" class="chips"></div>
+          <p id="ck-notes" class="note"></p>
+          <div class="fields goals">
+            <label class="field">Years to go<input id="ck-years" type="number" min="1" max="60" step="1" placeholder="e.g. 20" /></label>
+            <label class="field">Adding each month ($)<input id="ck-monthly" type="number" min="0" step="50" placeholder="0" /></label>
+            <label class="field">Amount to reach ($)<input id="ck-target" type="number" min="0" step="1000" placeholder="optional" /></label>
+            <label class="field">Biggest drop I can take (%)<input id="ck-drop" type="number" min="1" max="99" step="1" placeholder="optional" /></label>
+            <label class="field">Risk I want<select id="ck-risk"><option value="">Not said</option><option value="low">Conservative</option><option value="medium">Balanced</option><option value="high">Aggressive</option></select></label>
+          </div>
+          <ul id="ck-findings" class="findings"></ul>
+          <div class="metrics" id="ck-metrics"></div>
+          <div class="split even">
+            <div><h4>What you hold</h4><div class="table-wrap"><table id="ck-holdings"></table></div><div id="ck-classes" class="weight-bars"></div></div>
+            <div><div class="chart-head"><h4 id="ck-chart-title">How this mix has done</h4><div class="legend" id="ck-legend"></div></div><canvas id="ck-chart" class="chart"></canvas><p class="note" id="ck-chart-note"></p></div>
+          </div>
+          <div class="row wrap" style="margin-top:14px">
+            <button class="btn" type="button" id="ck-to-holdings">Track these in the rebalancer below</button>
+            <button class="btn" type="button" id="ck-to-studio">Open this mix in the Studio</button>
+            <span class="note">Facts and odds from past prices, not advice. The past doesn't promise the future.</span>
+          </div>
+        </div>
+      </section>
+      <h2 class="section-title">Rebalancer</h2>
       <div class="metrics" id="rb-metrics"></div>
       <div class="split">
         <div class="card">
@@ -301,7 +343,14 @@
       <div id="library" class="cards"></div>
     </section>
 
-    <footer class="foot">For research and education only. Past results, real or simulated, don't predict future returns, and nothing here is investment advice.</footer>
+    <footer class="foot">
+      <span>For research and education only. Past results, real or simulated, don't predict future returns, and nothing here is investment advice.</span>
+      <div class="appearance">
+        <label for="theme-pick">Look</label>
+        <select id="theme-pick" aria-label="Theme"><option value="tide">Tide</option><option value="ink">Ink</option><option value="harbor">Harbor</option></select>
+        <select id="mode-pick" aria-label="Light or dark"><option value="">Match my device</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      </div>
+    </footer>
   </main>
 
   <dialog id="markets" class="sheet">
