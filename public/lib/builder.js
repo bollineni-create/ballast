@@ -5,7 +5,7 @@ import { describe, summarize, nameFor } from "./spec.js";
 
 // Rule lines a follow-up instruction replaces rather than adds to.
 const REPLACES = [
-  [/\bcover\b[^.]*\b(?:when|if|on)\b/i, /^cover when/i],
+  [/(?:\bbuy\s+to\s+cover\b|(?<!to\s)\bcover\b)[^.]*\b(?:when|if|on)\b/i, /^cover when/i],
   [/\b(?:short|bet against)\b[^.]*\b(?:when|if|on)\b/i, /^short when/i],
   [/\b(?:buy|enter|go long)\b(?!\s+to\s+cover)[^.]*\b(?:when|if|on|after)\b/i, /^buy when/i],
   [/\b(?:sell|exit|get out)\b(?!\s+short)[^.]*\b(?:when|if|on)\b/i, /^sell when/i],

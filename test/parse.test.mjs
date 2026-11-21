@@ -101,4 +101,6 @@ test("follow-up edits change only the rule they name", () => {
   assert.equal(edit("take profit 20%"), base.replace("30%", "20%"));
   assert.equal(edit("buy to cover when RSI is below 40"), base.replace("below 50", "below 40"));
   assert.equal(edit("cover when RSI is below 40"), base.replace("below 50", "below 40"));
+  assert.equal(edit("to cover when RSI is below 40"), base);
+  assert.equal(edit("I want to cover when RSI is below 40"), base);
 });
