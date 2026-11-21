@@ -508,7 +508,7 @@ const FILLER_ONLY = /^(?:\b(?:with|a|an|and|use|using|plus|also|set|add|put|plac
 function splitClauses(text) {
   const parts = text
     .split(/\n|;|(?<![\d^A-Z])\.(?!\d)(?:\s|$)|\.\s+/)
-    .flatMap((s) => s.split(/,?\s+(?:and\s+)?then\s+|,\s*(?=(?:and\s+)?(?:sells?|exits?|get out|close (?:the |out)|rebalance|rotate)\b)|,\s*(?=(?:and\s+)?(?:buys?|enter|go long)\b[^,]*\b(?:when|if|on|once)\b)|\s+and\s+(?=(?:sells?|exits?|get out)\b)/i))
+    .flatMap((s) => s.split(/,?\s+(?:and\s+)?then\s+|,\s*(?=(?:and\s+)?(?:sells?|exits?|get out|close (?:the |out)|rebalance|rotate)\b)|,\s*(?=(?:and\s+)?(?:buys?|enter|go long)\b[^,]*\b(?:when|if|on|once)\b)|\s+and\s+(?=(?:sells?|exits?|get out|cover|(?:go |sell )?short)\b)|,\s*(?=(?:and\s+)?(?:(?:go |sell )?short|(?:buy to )?cover)\b[^,]*\b(?:when|if|on|once)\b)/i))
     .map((s) => s.trim().replace(/^(?:and|also|then)\s+/i, "").trim())
     .filter((s) => s && /[a-z0-9]/i.test(s) && !FILLER_ONLY.test(s));
   // "When X, sell" was split above only if it also said when; nothing to merge back.
@@ -531,6 +531,11 @@ export function parseStrategy(raw) {
   const notes = [], unparsed = [];
   const lower = () => text.toLowerCase();
   let trailingStop, stopLoss, takeProfit, maxHold, size, band, rebalance;
+  let volTarget, weighting;
+
+  // Before take profit, which also reads "target N%".
+  [volTarget, text] = grab(/(?:target(?:ing)?|aim(?:ing)?\s+for|scale(?:d)?\s+to|keep(?:\s+it)?\s+(?:at|near|around))\s+(?:a\s+|an\s+|about\s+)?(\d+(?:\.\d+)?)\s*%\s+(?:annual(?:ized)?\s+)?vol(?:atility)?\b|(\d+(?:\.\d+)?)\s*%\s+(?:annual(?:ized)?\s+)?vol(?:atility)?\s+target|vol(?:atility)?\s+target(?:\s+(?:of|at))?\s+(\d+(?:\.\d+)?)\s*%/i, text, (m) => num(m[1] ?? m[2] ?? m[3]) / 100);
+  [weighting, text] = grab(/(?:weight(?:ed|ing|s)?\s+(?:them\s+|each\s+|assets\s+)?by\s+inverse\s+vol(?:atility)?|inverse[- ]vol(?:atility)?(?:[- ]weight(?:ed|ing|s)?)?|risk[- ]parity|risk[- ]weight(?:ed|ing))/i, text, () => "invvol");
 
   [trailingStop, text] = grab(/(\d+(?:\.\d+)?)\s*%\s*trailing(?:\s+stop(?:[- ]?loss)?)?|trailing(?:\s+stop(?:[- ]?loss)?)?(?:\s+(?:of|at))?\s+(\d+(?:\.\d+)?)\s*%/i, text, (m) => num(m[1] ?? m[2]) / 100);
   [stopLoss, text] = grab(/(\d+(?:\.\d+)?)\s*%\s*(?:hard\s+)?stop(?:[- ]?loss)?(?:\s+below\s+entry)?|stop(?:[- ]?loss)?(?:\s+(?:of|at|is|to))?\s+(\d+(?:\.\d+)?)\s*%(?:\s+below\s+(?:the\s+)?entry)?|(?:cut|exit)\s+(?:losses|the position)?\s*(?:at|after)\s+(?:a\s+)?(\d+(?:\.\d+)?)\s*%\s+loss/i, text, (m) => num(m[1] ?? m[2] ?? m[3]) / 100);
@@ -550,7 +555,7 @@ export function parseStrategy(raw) {
 
   const spec = { entry: null, exit: null, symbols: [], weights: null, rotate: null, riskOff: null };
   let rotUniverse = [];
-  let entryIt;
+  let entryIt, shortIt;
 
   for (const clause of splitClauses(text)) {
     const c = clause.replace(/\s+/g, " ").replace(/^[,\s]+|[,\s]+$/g, "");
@@ -622,6 +627,26 @@ export function parseStrategy(raw) {
       const alloc = parseWeights(c);
       if (alloc) { spec.weights = alloc; continue; }
 
+      // Short X when C / cover when C
+      if ((m = c.match(new RegExp(String.raw`^(?:sell short|go short(?: on)?|short(?: sell)?|bet against)\s+(.*?)\b${COND_WORD}\s+(.+)$`, "i")))) {
+        spec.symbols.push(...symsIn(m[1]));
+        const r = parseConditionFull(m[2].replace(/^(?:a|the)\s+(?=close|cross|break)/i, ""));
+        spec.shortEntry = andWith(spec.shortEntry, r.cond);
+        shortIt ??= r.firstA;
+        continue;
+      }
+      if ((m = c.match(new RegExp(String.raw`^(?:buy to cover|cover(?: the short| shorts?| it)?|close (?:the |out the )?shorts?)\s*(.*?)\b${COND_WORD}\s+(.+)$`, "i")))) {
+        let cond;
+        try {
+          cond = parseCondition(m[2].replace(/^(?:a|the)\s+(?=close|cross|break)/i, ""), { it: shortIt });
+          if ((cond.t === "cmp" || cond.t === "cross") && JSON.stringify(cond.a) === JSON.stringify(cond.b)) cond = mirror(spec.shortEntry, c);
+        } catch (e) {
+          if (!(e instanceof ParseError) || !/\b(?:cross\w*\s+back|opposite|revers)/i.test(c)) throw e;
+          cond = mirror(spec.shortEntry, c, e);
+        }
+        spec.shortExit = spec.shortExit ? { t: "or", c: [spec.shortExit, cond] } : cond;
+        continue;
+      }
       // Entry: buy X when C  /  when C, buy X
       if ((m = c.match(new RegExp(String.raw`^${ENTRY_VERB}\s+(.*?)\b${COND_WORD}\s+(.+)$`, "i")))) {
         spec.symbols.push(...symsIn(m[1]));
@@ -648,7 +673,7 @@ export function parseStrategy(raw) {
           cond = parseCondition(m[2].replace(/^(?:a|the)\s+(?=close|cross|break)/i, ""), { it: entryIt });
           if ((cond.t === "cmp" || cond.t === "cross") && JSON.stringify(cond.a) === JSON.stringify(cond.b)) cond = mirror(spec.entry, c);
         } catch (e) {
-          if (!(e instanceof ParseError) || !/\b(?:cross\w*\s+back|opposite|revers)/i.test(c)) throw e;
+          if (!(e instanceof ParseError) || !/\b(?:cross\w*\s+back|opposite|revers)|\bcross\w*\s+(?:above|below|over|under)\s*$/i.test(c)) throw e;
           cond = mirror(spec.entry, c, e);
         }
         spec.exit = spec.exit ? { t: "or", c: [spec.exit, cond] } : cond;
@@ -671,15 +696,28 @@ export function parseStrategy(raw) {
   spec.symbols = uniq(spec.symbols);
   rotUniverse = uniq(rotUniverse);
 
+  // "risk parity SPY, TLT, GLD": a weighting with a bare list of assets
+  if (weighting && !spec.entry && !spec.shortEntry && !spec.weights && !spec.rotate) {
+    const list = uniq([...spec.symbols, ...unparsed.flatMap((u) => symsIn(u))]);
+    if (list.length >= 2) {
+      spec.weights = round6(Object.fromEntries(list.map((s) => [s, 1 / list.length])));
+      unparsed.length = 0;
+    }
+  }
+
   let out;
-  if (spec.entry) {
+  if (spec.entry || spec.shortEntry) {
     out = {
       kind: "signal", symbols: spec.symbols, entry: spec.entry, exit: spec.exit,
       stopLoss: stopLoss ?? null, takeProfit: takeProfit ?? null, trailingStop: trailingStop ?? null,
       maxHold: maxHold ?? null, size: size ?? null,
     };
+    if (spec.shortEntry) { out.shortEntry = spec.shortEntry; out.shortExit = spec.shortExit ?? null; }
+    if (volTarget) out.volTarget = volTarget;
     if (spec.weights || spec.rotate) notes.push("Found both a buy rule and a portfolio allocation; kept the buy rule.");
-    if (!spec.exit && !stopLoss && !takeProfit && !trailingStop && !maxHold) notes.push("No sell rule: each position is held until the end of the test. Add one like \"sell when RSI is above 70\" or \"sell after 20 days\".");
+    const stops = stopLoss || takeProfit || trailingStop || maxHold;
+    if (spec.entry && !spec.exit && !stops && !spec.shortEntry) notes.push("No sell rule: each position is held until the end of the test. Add one like \"sell when RSI is above 70\" or \"sell after 20 days\".");
+    if (spec.shortEntry && !spec.shortExit && !stops && !spec.entry) notes.push("No cover rule: each short is held until the end of the test. Add one like \"cover when RSI is below 30\" or a stop loss.");
   } else if (spec.rotate && (rotUniverse.length || spec.symbols.length)) {
     const universe = uniq([...rotUniverse, ...spec.symbols]).filter((s) => s !== spec.riskOff?.hold);
     if (universe.length < 2) throw new ParseError("A rotation needs at least two assets to choose from, e.g. \"hold the top 1 of SPY, EFA and TLT by 126-day return\".");
@@ -688,16 +726,20 @@ export function parseStrategy(raw) {
       rotate: { top: Math.min(spec.rotate.top ?? 1, universe.length), by: spec.rotate.by ?? { t: "ind", ind: "ret", n: 126 }, absolute: Boolean(spec.rotate.absolute) },
       rebalance: rebalance ?? (band ? null : "monthly"), band: band ?? null, riskOff: spec.riskOff,
     };
+    if (weighting) out.weighting = weighting;
+    if (volTarget) out.volTarget = volTarget;
   } else if (spec.weights) {
     out = {
       kind: "allocate", symbols: Object.keys(spec.weights), weights: spec.weights, rotate: null,
-      rebalance: rebalance ?? null, band: band ?? (rebalance || Object.keys(spec.weights).length < 2 ? null : 0.05), riskOff: spec.riskOff,
+      rebalance: rebalance ?? ((weighting || volTarget) && !band ? "monthly" : null), band: band ?? (rebalance || weighting || volTarget || Object.keys(spec.weights).length < 2 ? null : 0.05), riskOff: spec.riskOff,
     };
-    if (!rebalance && !band && Object.keys(spec.weights).length > 1) notes.push("No rebalance schedule given, so it rebalances when any holding drifts 5% from target.");
+    if (weighting) out.weighting = weighting;
+    if (volTarget) out.volTarget = volTarget;
+    if (!rebalance && !band && !weighting && !volTarget && Object.keys(spec.weights).length > 1) notes.push("No rebalance schedule given, so it rebalances when any holding drifts 5% from target.");
   } else {
     throw new ParseError(
       unparsed.length
-        ? `Couldn't find a buy rule or a portfolio in that. ${notes[0] || ""} Try "buy when the 50-day SMA crosses above the 200-day SMA" or "hold 60% SPY, 40% TLT, rebalance quarterly".`.replace(/\s+/g, " ")
+        ? `Couldn't find a buy rule, a short rule or a portfolio in that. ${notes[0] || ""} Try "buy when the 50-day SMA crosses above the 200-day SMA" or "hold 60% SPY, 40% TLT, rebalance quarterly".`.replace(/\s+/g, " ")
         : `Couldn't find a buy rule or a portfolio in that. Try "buy when the 50-day SMA crosses above the 200-day SMA" or "hold 60% SPY, 40% TLT, rebalance quarterly".`
     );
   }

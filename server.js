@@ -3,7 +3,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { aiEnabled, aiKeyError, generateStrategy } from "./ai.js";
+import { aiEnabled, aiKeyError, generateStrategy, readPortfolio } from "./ai.js";
 import { getHistory, getQuotes, stockProvider, alpacaKeyError } from "./marketdata.js";
 import { alpacaConfigured } from "./alpaca.js";
 import { runOnce, status as autopilotStatus, saveConfig, report, reportMarkdown } from "./autopilot.js";
@@ -12,11 +12,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "public");
 const PORT = Number(process.env.PORT) || 5173;
 const HOST = process.env.HOST || "127.0.0.1";
-async function readJson(req) {
+async function readJson(req, limit = 1e6) {
   let body = "";
   for await (const chunk of req) {
     body += chunk;
-    if (body.length > 1e6) throw new Error("Request too large");
+    if (body.length > limit) throw Object.assign(new Error("Request too large"), { status: 413 });
   }
   return JSON.parse(body || "{}");
 }
@@ -26,7 +26,10 @@ const send = (res, status, data, type = "application/json") => {
   res.end(type === "application/json" ? JSON.stringify(data) : data);
 };
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+const MIME = {
+  ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json",
+  ".png": "image/png", ".woff2": "font/woff2", ".webmanifest": "application/manifest+json",
+};
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -46,7 +49,13 @@ const server = http.createServer(async (req, res) => {
       const r = await report();
       return send(res, 200, { ...r, markdown: reportMarkdown(r) });
     }
-    if (url.pathname === "/api/status") return send(res, 200, { ai: aiEnabled && !aiKeyError, aiKeyError, stockProvider: stockProvider(), alpacaKeyError });
+    if (url.pathname === "/api/status") return send(res, 200, { ai: aiEnabled && !aiKeyError, aiKeyError, stockProvider: stockProvider(), alpacaKeyError, portfolioReader: true });
+    // Reads positions out of a screenshot or loose text with Claude. Nothing is stored.
+    if (url.pathname === "/api/portfolio/read" && req.method === "POST") {
+      const { text, image } = await readJson(req, 9e6);
+      if (typeof text !== "string" && typeof image !== "string") return send(res, 400, { error: "text or image is required" });
+      return send(res, 200, await readPortfolio({ text: typeof text === "string" ? text : "", image: typeof image === "string" ? image : null }));
+    }
     if (url.pathname === "/api/history") {
       const raw = url.searchParams.get("years");
       const years = raw === "max" ? "max" : Math.min(50, Math.max(1, Number(raw) || 3));

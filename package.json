@@ -1,8 +1,8 @@
 {
   "name": "ballast",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Local workspace for describing, backtesting, and paper trading rule-based trading strategies.",
+  "description": "Describe a trading strategy in plain English, test it on real market history, and see whether the result can be trusted.",
   "type": "module",
   "scripts": {
     "start": "node server.js",

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseStrategy, ParseError } from "../public/lib/parse.js";
 import { describe } from "../public/lib/spec.js";
+import { localStrategy } from "../public/lib/builder.js";
 
 // Free-form ideas -> the canonical rules Ballast shows (and re-reads) for them.
 const CASES = [
@@ -61,8 +62,27 @@ test("canonical rules read back to the identical spec", () => {
   }
 });
 
+test("shorts, volatility targets and inverse-volatility weights round-trip", () => {
+  const cases = [
+    ["Short SPY when the 50 day SMA crosses below the 200 day SMA, cover when it crosses back above, 8% stop loss",
+      "Trade SPY\nShort when 50-day SMA crosses below 200-day SMA\nCover when 50-day SMA crosses above 200-day SMA\nStop loss 8%"],
+    ["Buy QQQ when RSI is below 30, sell when RSI is above 60, short when RSI is above 80 and cover when RSI is below 50",
+      "Trade QQQ\nBuy when 14-day RSI is below 30\nSell when 14-day RSI is above 60\nShort when 14-day RSI is above 80\nCover when 14-day RSI is below 50"],
+    ["60/40 SPY TLT rebalanced monthly, target 10% volatility", "Hold 60% SPY, 40% TLT\nTarget 10% volatility\nRebalance monthly"],
+    ["risk parity SPY, TLT, GLD", "Hold 33.3333% SPY, 33.3333% TLT, 33.3333% GLD\nWeight by inverse volatility\nRebalance monthly"],
+    ["Buy SPY when price is above the 200 day SMA, sell when price is below the 200 day SMA, 12% volatility target, take profit 30%",
+      "Trade SPY\nBuy when price is above 200-day SMA\nSell when price is below 200-day SMA\nTake profit 30%\nTarget 12% volatility"],
+  ];
+  for (const [english, rules] of cases) {
+    const r = parseStrategy(english);
+    assert.deepEqual(r.unparsed, [], english);
+    assert.equal(describe(r.spec), rules);
+    assert.equal(describe(parseStrategy(rules).spec), rules);
+  }
+});
+
 test("nonsense is rejected with a helpful message", () => {
-  assert.throws(() => parseStrategy("make me rich"), (e) => e instanceof ParseError && /buy rule or a portfolio/.test(e.message));
+  assert.throws(() => parseStrategy("make me rich"), (e) => e instanceof ParseError && /buy rule, a short rule or a portfolio/.test(e.message));
   assert.throws(() => parseStrategy(""), ParseError);
 });
 
@@ -70,4 +90,17 @@ test("unreadable parts are reported, not silently dropped", () => {
   const r = parseStrategy("Buy when RSI is below 30, sell when the moon is full");
   assert.equal(r.unparsed.length, 1);
   assert.match(r.unparsed[0], /moon/);
+});
+
+test("follow-up edits change only the rule they name", () => {
+  const base = "Trade SPY\nBuy when price is above 200-day SMA\nShort when 14-day RSI is above 80\nCover when 14-day RSI is below 50\nTake profit 30%\nTarget 12% volatility";
+  const edit = (t) => localStrategy(t, base).rules;
+  assert.equal(edit("target 10% volatility"), base.replace("12%", "10%"));
+  assert.equal(edit("remove the volatility target"), base.replace("\nTarget 12% volatility", ""));
+  assert.equal(edit("remove the target"), base.replace("\nTake profit 30%", ""));
+  assert.equal(edit("take profit 20%"), base.replace("30%", "20%"));
+  assert.equal(edit("buy to cover when RSI is below 40"), base.replace("below 50", "below 40"));
+  assert.equal(edit("cover when RSI is below 40"), base.replace("below 50", "below 40"));
+  assert.equal(edit("to cover when RSI is below 40"), base);
+  assert.equal(edit("I want to cover when RSI is below 40"), base);
 });

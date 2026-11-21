@@ -3,7 +3,9 @@
 
 // holdings: [{ symbol, shares, target }] where target is a percent (0–100).
 // prices: { SYMBOL: price }. Positions without a price are left out of the math.
-export function analyze(holdings, prices, cash) {
+// `cashBuffer` (percent kept in cash) scales the targets, so a holding at 54% with a 60% target
+// and 10% kept in cash is on target, not 6 points short.
+export function analyze(holdings, prices, cash, cashBuffer = 0) {
   const rows = holdings
     .filter((h) => Number.isFinite(prices[h.symbol]))
     .map((h) => ({ ...h, price: prices[h.symbol], value: h.shares * prices[h.symbol] }));
@@ -11,7 +13,7 @@ export function analyze(holdings, prices, cash) {
   const total = invested + cash;
   for (const r of rows) {
     r.weight = total > 0 ? (r.value / total) * 100 : 0;
-    r.drift = r.weight - r.target;
+    r.drift = r.weight - r.target * (1 - cashBuffer / 100);
   }
   const targetSum = holdings.reduce((a, h) => a + (Number(h.target) || 0), 0);
   return { rows, total, invested, cash, cashWeight: total > 0 ? (cash / total) * 100 : 0, targetSum };

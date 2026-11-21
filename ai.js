@@ -29,6 +29,9 @@ STRATEGY TYPE 1: buy/sell rules (long only, daily bars)
   Trailing stop <N>%                      optional, below the highest high since entry
   Sell after <N> days                     optional time limit, in trading days
   Position size <N>%                      optional, % of equity per position (default: split evenly across traded symbols)
+  Short when <condition>                  optional, alone or alongside Buy when: sells short
+  Cover when <condition>                  optional, closes a short (stops, targets and time limits apply to shorts too)
+  Target <N>% volatility                  optional, shrinks positions when the asset's volatility runs above N% a year
 
 STRATEGY TYPE 2: portfolios
   Hold <N>% <SYMBOL>, <N>% <SYMBOL>...    fixed weights summing to 100
@@ -40,6 +43,8 @@ STRATEGY TYPE 2: portfolios
   When <condition>, hold <SYMBOL> instead       or: When <condition>, hold cash instead   (checked daily)
   Rebalance daily|weekly|monthly|quarterly|yearly
   Rebalance when any holding drifts <N>% from its target
+  Weight by inverse volatility            optional ("risk parity"): calmer assets get bigger weights
+  Target <N>% volatility                  optional: holds some cash when the portfolio's volatility runs above N% a year
 
 CONDITIONS
   <value> is above|below|at least|at most <value>
@@ -65,7 +70,7 @@ SYMBOLS use Yahoo Finance tickers: US stocks/ETFs plain (AAPL, SPY), indices wit
 ${SYMBOL_HINTS}
 Map names to tickers ("Toyota" -> 7203.T, "the S&P 500" -> SPY when traded or as a market filter, "bonds" -> TLT, "gold" -> GLD for portfolios or GC=F for futures). Pick the most liquid sensible ticker.
 
-If the idea needs something the language can't express (shorting, intraday bars, options, fundamentals, news, leverage), write the closest version and say exactly what you changed in the explanation. Never invent syntax.
+If the idea needs something the language can't express (intraday bars, options, fundamentals, news, leverage above 1x), write the closest version and say exactly what you changed in the explanation. Never invent syntax.
 
 Reply with exactly:
 NAME: <short strategy name>
@@ -127,6 +132,58 @@ export async function generateStrategy(prompt, current) {
     const reason = e instanceof Anthropic.APIError ? e.error?.error?.message || `HTTP ${e.status}` : e.message;
     return { ...localStrategy(prompt, current), warning: `Claude unavailable (${reason}); used the built-in parser.` };
   }
+}
+
+// ---------- reading a portfolio from a screenshot or loose text ----------
+const PORTFOLIO_SYSTEM = `You read investment account screenshots and loose descriptions of holdings, and return the positions as JSON. You never give advice.
+
+Return ONLY a JSON object, no prose, in this shape:
+{"positions":[{"symbol":"AAPL","shares":50,"value":17000}],"cash":1200,"goals":{"years":20,"monthly":500,"target":1000000,"maxDrop":25,"risk":"low|medium|high","income":true},"notes":"one short sentence, only if something was unreadable or assumed"}
+
+Rules:
+- symbol: the Yahoo Finance ticker (AAPL, VTI, BRK-B, 7203.T, BTC-USD for crypto). If only a fund or company name is shown, give its ticker. Skip a row you cannot identify and mention it in notes.
+- shares: the quantity held, if shown. value: the position's current market value in the account's currency, if shown. Give whichever the image shows, or both. Use "weight" (a percent of the portfolio) only when neither is shown.
+- cash: cash, sweep or money-market balance, if shown.
+- Numbers are plain numbers: no currency signs, commas or percent signs.
+- goals: include only fields the person actually stated in their text; omit the rest (omit "goals" if none). years = time horizon, monthly = money added per month, target = amount they want to reach, maxDrop = the largest percent drop they said they could accept.
+- Do not invent positions. If nothing in the input is a holding, return {"positions":[]}.`;
+
+const cleanNum = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+
+// `image` is a data URL (PNG, JPEG, WebP or GIF). Returns { positions, cash, goals, notes }.
+export async function readPortfolio({ text = "", image = null }) {
+  if (!aiEnabled) throw Object.assign(new Error("Reading a picture needs Claude. Add an Anthropic API key, or type the positions instead."), { status: 501 });
+  const content = [];
+  if (image) {
+    const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(image);
+    if (!m) throw Object.assign(new Error("That picture isn't a PNG, JPEG, WebP or GIF."), { status: 400 });
+    content.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } });
+  }
+  content.push({ type: "text", text: text.trim() ? `What the person wrote:\n${text.slice(0, 6000)}` : "Read the holdings in this picture." });
+  let raw;
+  try {
+    const response = await client.messages.create({ model: "claude-opus-5-5", max_tokens: 4000, system: PORTFOLIO_SYSTEM, messages: [{ role: "user", content }] });
+    if (response.stop_reason === "refusal") throw new Error("The model declined this request.");
+    raw = response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) { aiKeyError = KEY_HELP; throw Object.assign(new Error(KEY_HELP), { status: 502 }); }
+    throw Object.assign(new Error(`Claude couldn't read that (${e instanceof Anthropic.APIError ? e.error?.error?.message || `HTTP ${e.status}` : e.message}).`), { status: 502 });
+  }
+  let json;
+  try { json = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw Object.assign(new Error("Claude's reading of that came back garbled. Try again, or type the positions."), { status: 502 }); }
+  // Keep only what the page expects, whatever the model returned.
+  const positions = (Array.isArray(json.positions) ? json.positions : []).slice(0, 80).map((p) => {
+    const symbol = String(p?.symbol || "").toUpperCase().trim();
+    if (!/^\^?[A-Z0-9][A-Z0-9.\-=]{0,14}$/.test(symbol)) return null;
+    const out = { symbol, shares: cleanNum(p.shares), value: cleanNum(p.value), weight: cleanNum(p.weight) };
+    return out.shares || out.value || out.weight ? JSON.parse(JSON.stringify(out)) : null;
+  }).filter(Boolean);
+  const g = json.goals && typeof json.goals === "object" ? json.goals : {};
+  const goals = JSON.parse(JSON.stringify({
+    years: cleanNum(g.years), monthly: cleanNum(g.monthly), target: cleanNum(g.target), maxDrop: cleanNum(g.maxDrop),
+    risk: ["low", "medium", "high"].includes(g.risk) ? g.risk : undefined, income: g.income === true ? true : undefined,
+  }));
+  return { positions, cash: cleanNum(json.cash) || 0, goals, notes: typeof json.notes === "string" ? json.notes.slice(0, 300) : "" };
 }
 
 export { localStrategy };

@@ -2,10 +2,19 @@
 
 <h1 align="center">Ballast</h1>
 
-<p align="center"><b>Keep your portfolio steady. Describe a strategy in plain English, backtest it on live data from the world's major markets, get rebalancing advice, and rehearse on an Alpaca paper account.</b><br>
-A Mac app that keeps itself up to date. Private: only people with access to this repository can see or download it.</p>
+<p align="center"><b>Describe a trading strategy in plain English, test it on live data from the world's major markets, and find out how far to trust the result.</b><br>
+A website and a Mac app that keeps itself up to date. Private: only people with access to this repository can see or download it.</p>
 
-Describe a trading idea in plain English ("buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average", "60/40 stocks and bonds, rebalanced quarterly") and Ballast turns it into short rule sentences you can read, edit and backtest on every daily bar the market has. There is no code: the rules themselves are the strategy. The Rebalance tab tells you which trades bring your holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money), so you can see how a strategy behaves before risking anything.
+Type an idea ("buy Toyota when it drops 10% from its 52-week high and the Nikkei is above its 200-day average", "risk parity stocks, bonds and gold", "short QQQ when RSI is above 80") and Ballast turns it into short rule sentences you can read and edit. There is no code: the rules are the strategy. It then tests them on every daily bar the market has and answers the question a backtest usually dodges: **is this real, or did it just fit the past?**
+
+- **A robustness score, 0 to 100**, built from five checks, each explained in a sentence: edge over buy & hold, drawdown control, whether the later years held up, how much evidence there is, and how it fares when history is reshuffled.
+- **Alternate histories.** 500 reshuffles of the strategy's own returns show the range of outcomes luck alone could have produced.
+- **Sensitivity grids.** Re-run the rules across nearby numbers and see whether the result survives, or only works at exactly the values you picked. Click a cell to use it.
+- **Walk-forward tests.** Tune on the past, trade the next stretch, repeat. What comes out is a result the tuning never saw.
+- **Today.** What the rules say to do now: buy, hold, sell, or the portfolio's current target weights, which can be sent straight to the rebalancer.
+- **Compare.** Up to six strategies over the same years, side by side.
+
+The Portfolio tab tells you which trades bring real holdings back to target. It only ever gives advice; you place any real trades yourself. The optional autopilot runs the same rebalancing rules on an Alpaca **paper** account (real prices, pretend money).
 
 ## Install it on a Mac
 
@@ -48,7 +57,7 @@ Then open http://127.0.0.1:5173. Set `PORT` to use a different port. Keys go in 
 
 To get a Mac app that runs from your clone and updates itself from `main` (it uses your Git sign-in to pull), run `./app/macos/install.sh` from the clone, or `./app/macos/build.sh` to rebuild it after changing `app/macos`.
 
-Opened without its server (for example `public/index.html` straight from disk), the page still works with fewer features: live data covers only crypto pairs from Coinbase, stock symbols use simulated data, and the Claude builder and autopilot are off.
+Opened without its server (served as plain files), the page still works with fewer features: live data covers only crypto pairs from Coinbase, and the Claude builder, currency conversion and autopilot are off.
 
 ### Market data
 
@@ -74,9 +83,13 @@ That switches US stocks to Alpaca's free real-time IEX feed. If you have a paid 
 
 Backtests default to **Max** history, meaning every daily bar the source has: for example AAPL from 1980, SPY from 1993, the S&P 500 index (`^GSPC`) from 1927, the Nikkei from 1965, and BTC-USD on Coinbase from 2015. A test that uses several markets starts when all of them have data. Use the History menu to limit a test to 1, 3, 5, 10 or 20 years. Charts switch to a log scale when prices span more than 10x.
 
-Yahoo prices are adjusted for splits but not dividends, so buy & hold and strategy returns leave out dividend income. Index symbols like `^GSPC` are price indices with no dividends at all.
+**Dividends.** With **Reinvest dividends** on (the default), stock and ETF prices from Yahoo are adjusted so that dividends count as reinvested, which is what buy & hold really earns. Index symbols like `^GSPC` are price indices with no dividends at all.
 
-The Monitor tab polls quotes every 2 to 60 seconds and updates the current day's bar, so paper strategies react to intraday prices. A strategy's entry and exit rules act at most once per daily bar, while stop losses and take profits can trigger at any update.
+**Currencies.** Every market is converted into one currency (US dollars by default; euros, pounds or yen on request) at each day's exchange rate, so a test of Toyota or the DAX includes the currency moves a foreign investor would have lived through. London prices quoted in pence are handled. Choose **Each market's own** to turn conversion off. Rules still read each market's own prices: "Toyota is above its 200-day average" means in yen.
+
+**Compare with.** By default a strategy is measured against buying and holding what it trades. Type a symbol (for example `SPY`) to measure against that instead.
+
+The Live tab polls quotes every 2 to 60 seconds and updates the current day's bar, so paper strategies react to intraday prices. A strategy's entry and exit rules act at most once per daily bar, while stop losses and take profits can trigger at any update.
 
 ### Plain-English strategies
 
@@ -90,15 +103,38 @@ ANTHROPIC_API_KEY=sk-ant-... npm start
 
 Claude (`claude-opus-5-5`, with server-side refusal fallback) translates the idea into rule lines, and Ballast's parser checks every line before it reaches the page; if Claude writes something the parser can't read, it is asked to fix it once, then the built-in parser takes over.
 
-## Features
+## What's in it
 
-- **Build & Test**: chat-style strategy builder, editable plain-English rules checked as you type, and a backtest on daily bars from one or more markets. It reports total return vs. buy & hold, CAGR, max drawdown, Sharpe, win rate, profit factor and time invested, with an equity curve, a price chart with trade markers (or holdings over time for portfolios), and a trade or order list you can export as CSV.
-- **Data**: live market history by default. You can also import a CSV with `Date` and `Close` columns (`Open`, `High`, `Low` and `Volume` are optional), or switch to a simulated series for offline use.
-- **Rebalance**: enter your holdings, cash and target percentages. Prices refresh every 15 seconds. When any holding drifts more than your band (5 percentage points by default) from its target, you get a notification and a suggested list of trades that brings every holding back to target. Sells come first so they fund the buys, and you can set a cash buffer, a minimum trade size, and whole or fractional shares. Copy the list or export it as CSV, place the trades at your broker yourself, then click **I placed these trades** to update your holdings. The rebalancer only gives advice and never places orders.
-- **Monitor**: a watchlist with live quotes, price alerts (with browser notifications), paper-trading strategies with live P&L, and an activity log. A simulated feed is available for when markets are closed or you're offline.
-- **Library**: starter strategies across US, European, Japanese, commodity and crypto markets, plus the ones you save.
+- **Studio**: describe a strategy, read and edit its rules (checked as you type), and test it. Results open with the robustness score and headline numbers, then five tabs: **Overview** (growth, drawdown, price and trades or holdings), **Robustness** (first 70% vs last 30% of history, alternate histories, sensitivity grid, walk-forward test), **Returns** (year by year, month by month, risk detail), **Trades** (with CSV export) and **Today**. Share copies a link that opens the strategy on any device.
+- **Compare**: pick up to six strategies (the one you have open, saved ones, starters) and run them over the years they all have.
+- **Portfolio**: enter your holdings, cash and target percentages. Prices refresh every 15 seconds. When a holding drifts more than your band (5 percentage points by default) from its target, you get a notification and a list of trades that brings every holding back. Sells come first so they fund the buys, and you can set cash to keep, a minimum trade size, and whole or fractional shares. Copy the list or export it, place the trades at your broker yourself, then choose **I placed these trades** to update your holdings. **Use Studio targets** copies today's target weights from a portfolio strategy.
+- **Live**: a watchlist with live quotes, price alerts (with browser notifications), paper trading of buy/sell and short rules with pretend money, and an activity log. A simulated feed is there for when markets are closed.
+- **Library**: starter strategies across trend, mean reversion, portfolios, rotation, long/short, world markets, commodities and crypto, plus the ones you save.
 
-Saved strategies, the watchlist, alerts and paper positions are stored in your browser's local storage.
+You can also import a CSV with `Date` and `Close` columns (`Open`, `High`, `Low` and `Volume` are optional), or switch Data to Simulated for offline use. Saved strategies, the watchlist, alerts and paper positions are stored in your browser. On a phone, add the site to your home screen to open it like an app.
+
+### Portfolio check-up
+
+At the top of **Portfolio**, type or paste what you hold and what you're aiming for ("50 AAPL, 20 MSFT, $5,000 in VTI, 3k cash. Retiring in 20 years, adding $500 a month, want $1M, can't take more than a 25% drop"), or add a screenshot of your brokerage account. Positions can be share counts, dollar amounts or percentages, and names like "Apple" or "bonds" work. Ballast then shows:
+
+- how that mix has done (return per year, worst drop, worst year) on real history, rebalanced yearly;
+- where the risk sits: each holding's share of the money next to its share of the swings, the asset-class mix, and how closely the holdings move together;
+- plain-language findings against your goals, such as a holding that is too large, a past drop deeper than you said you could take, or too much stock for a short horizon;
+- where it could be by your date: 500 futures built from the mix's own daily returns, with your monthly additions, and the share of them that reach your target.
+
+Goals can be edited in the fields under the box. From there the holdings can be copied into the rebalancer or opened in the Studio. It reports facts and odds from past prices; it does not tell you what to buy or sell.
+
+Typed text is read in your browser. A **picture** is read by Claude, so it needs a Ballast server with an Anthropic key (the Mac app or `npm start`); it is sent for that one reading and not stored. The check-up itself is kept only on your device and isn't synced.
+
+### Look and design system
+
+The **Look** menu at the bottom of the page switches between three themes (Ink, the plain default, plus Tide and Harbor) and light or dark. `DESIGN.md` documents the design system, and `/design.html` shows every token and component.
+
+### How results are judged
+
+The robustness score adds five checks worth 20 points each: Sharpe ratio against buy & hold; worst drop against buy & hold; Sharpe in the last 30% of history against the first 70%; the t-statistic of returns, scaled down when there are fewer than 30 trades; and the return per year that 1 in 20 reshuffled histories fell below. 80 and up reads Robust, 65 Promising, 50 Mixed, 35 Fragile. It measures how far to believe the backtest, not how much money the strategy will make.
+
+Alternate histories use a block bootstrap: the strategy's daily returns are resampled in 21-day blocks (which keeps streaks and volatile stretches together) into 500 histories of the same length, with the benchmark resampled alongside. The seed is fixed, so the same test always gives the same numbers.
 
 ### Sync across devices
 
@@ -106,14 +142,14 @@ On [bollineni.co](https://bollineni.co/#ballast), the **Sync** button in the top
 
 ## Paper rebalancing test (Alpaca)
 
-The autopilot runs the Rebalance tab's logic automatically on an **Alpaca paper-trading** account: real market prices, simulated money. The trading client only connects to `paper-api.alpaca.markets` and refuses any other host, so it cannot place real-money orders.
+The autopilot runs the Portfolio tab's logic automatically on an **Alpaca paper-trading** account: real market prices, simulated money. The trading client only connects to `paper-api.alpaca.markets` and refuses any other host, so it cannot place real-money orders.
 
 ### Set up (once)
 
 1. Create a free account at [alpaca.markets](https://alpaca.markets) and open the **Paper Trading** dashboard. If you like, reset the paper balance to the amount you'd actually invest, so the numbers feel real.
 2. Generate **paper** API keys.
 3. Add them in the Mac app with **Ballast → Edit Keys…** (or, running from source, in `.env`).
-4. Open the **Rebalance** tab, set your targets and rules, then click **Use targets & rules above** in the autopilot panel.
+4. Open the **Portfolio** tab, set your targets and rules, then click **Use targets & rules above** in the autopilot panel.
 5. Click **Turn on**. To start straight away instead of at tomorrow's check, click **Run check now** during market hours. The first check invests the paper cash at your targets and marks the start of the test.
 
 ### How it runs
@@ -183,13 +219,13 @@ When price of ^VIX is above 35, hold cash instead
 Rebalance monthly
 ```
 
-- **Buy/sell rules**: `Trade SYM, …` (optional; otherwise the Market field), `Buy when …`, `Sell when …`, `Stop loss N%`, `Take profit N%`, `Trailing stop N%`, `Sell after N days`, `Position size N%`. Long only; with several traded symbols each gets an equal slice unless a position size is set.
-- **Portfolios**: `Hold N% SYM, …` or `Rotate among …` with `Hold the top N by <value>`, then optionally `When …, hold SYM instead` (checked daily), `Rebalance daily|weekly|monthly|quarterly|yearly` and `Rebalance when any holding drifts N% from its target`.
+- **Buy/sell rules**: `Trade SYM, …` (optional; otherwise the Market field), `Buy when …`, `Sell when …`, `Short when …`, `Cover when …`, `Stop loss N%`, `Take profit N%`, `Trailing stop N%`, `Sell after N days`, `Position size N%`, `Target N% volatility`. A strategy can be long, short or both; when both are given, an opposite signal closes the position and opens the other side. With several traded symbols each gets an equal slice unless a position size is set. A volatility target shrinks a position when the asset's recent volatility runs above the target.
+- **Portfolios**: `Hold N% SYM, …` or `Rotate among …` with `Hold the top N by <value>`, then optionally `Weight by inverse volatility` (calmer assets get bigger weights), `When …, hold SYM instead` (checked daily), `Target N% volatility` (holds cash when the mix runs hotter than the target), `Rebalance daily|weekly|monthly|quarterly|yearly` and `Rebalance when any holding drifts N% from its target`.
 - **Conditions**: `is above / below / at least / at most`, `crosses above / below`, `is more than / at least / less than N% above / below`, `price closes up / down N days in a row`, joined with `and`, `or`, parentheses and `not (…)`.
 - **Values**: price, open, high, low, volume, numbers, `N-day SMA / EMA / RSI / ATR / return / volatility / high / low / average volume`, `drawdown from N-day high`, `upper / middle / lower Bollinger Band (N, K)`, `MACD line / signal line / histogram (F, S, G)`, `… N days ago`; add `of SYM` to read another market. `N-day high` and `low` are the N days before today, so "price is above 55-day high" is a breakout.
 - Rules are checked at each bar's close and orders fill at the next bar's open. Stops and targets are checked against each bar's high and low. Fees and slippage are set in basis points.
 
-`npm test` runs the parser (free-form phrasings and exact round-trips of the canonical form) and the engine, including a check that single-market rules give exactly the same results as Ballast's earlier code-based engine.
+`npm test` runs the parser (free-form phrasings and exact round-trips of the canonical form), the engine (including a check that single-market long rules give the same trades and returns as Ballast's original code-based engine), the statistics and the research tools.
 
 ## Disclaimer
 

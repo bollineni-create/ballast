@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ballast design system</title>
+  <link rel="icon" href="icons/mark.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="theme.js"></script>
+  <style>
+    .ds { display: grid; gap: var(--s-8); }
+    .ds section { display: grid; gap: var(--s-4); }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s-3); }
+    .sw { border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; background: var(--surface); font-size: var(--fs-1); }
+    .sw i { display: block; height: 52px; }
+    .sw span { display: block; padding: var(--s-2) var(--s-3); color: var(--quiet); }
+    .sw b { display: block; color: var(--ink); }
+    .scale > div { display: flex; align-items: baseline; gap: var(--s-4); border-bottom: 1px solid var(--grid); padding: var(--s-2) 0; }
+    .scale code { flex: none; width: 150px; }
+    .bars > div { display: flex; align-items: center; gap: var(--s-4); }
+    .bars i { display: block; height: 14px; background: var(--tint); border-radius: 3px; }
+    .radii { display: flex; flex-wrap: wrap; gap: var(--s-4); }
+    .radii div { width: 96px; height: 64px; background: var(--raised); border: 1px solid var(--line); display: grid; place-content: center; font-size: var(--fs-1); }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="./"><svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><rect width="64" height="64" rx="14.5" class="mark-bg"/><path d="M19 11h10.5a9.5 9.5 0 0 1 0 19H19z" class="mark-top"/><path d="M19 30h14.5a11.5 11.5 0 0 1 0 23H19z" class="mark-base"/></svg><span>Ballast</span></a>
+    <div class="bar-end appearance">
+      <select id="theme-pick" aria-label="Theme"><option value="ink">Ink</option><option value="tide">Tide</option><option value="harbor">Harbor</option></select>
+      <select id="mode-pick" aria-label="Light or dark"><option value="">Match my device</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </div>
+  </header>
+  <main class="ds">
+    <div class="view-head"><div><h1>Design system</h1><p class="lede">Every token and component Ballast is built from, drawn with the real stylesheet. Switch the theme and mode at the top right. The rules for using them are in DESIGN.md.</p></div></div>
+
+    <section><h2 class="section-title">Color roles</h2><div class="swatches" id="colors"></div></section>
+    <section><h2 class="section-title">Chart series</h2><div class="swatches" id="series"></div></section>
+    <section><h2 class="section-title">Type scale</h2><div class="scale card" id="type"></div></section>
+    <section><h2 class="section-title">Spacing (4px grid)</h2><div class="bars card" id="space" style="display:grid;gap:var(--s-2)"></div></section>
+    <section><h2 class="section-title">Radius</h2><div class="radii" id="radii"></div></section>
+
+    <section><h2 class="section-title">Buttons and chips</h2>
+      <div class="card"><div class="row wrap"><button class="btn primary">Primary</button><button class="btn">Default</button><button class="btn small">Small</button><button class="btn" disabled>Disabled</button><button class="link">Link</button>
+        <span class="chip">Chip</span><span class="chip on">On</span><span class="chip bad">Problem</span><button class="chip active">Selected</button></div></div></section>
+
+    <section><h2 class="section-title">Fields</h2>
+      <div class="card"><div class="fields"><label class="field">Text<input value="SPY" /></label><label class="field">Choice<select><option>All of it</option></select></label>
+        <label class="check wide"><input type="checkbox" checked /> A checkbox</label></div></div></section>
+
+    <section><h2 class="section-title">Numbers</h2>
+      <div class="metrics"><div class="metric"><div class="label">Return per year</div><div class="value pos">9.1%</div><div class="sub">10.4% holding SPY</div></div>
+        <div class="metric"><div class="label">Worst drop</div><div class="value neg">-33.7%</div><div class="sub">-55.2% holding SPY</div></div>
+        <div class="metric"><div class="label">Sharpe</div><div class="value">0.71</div><div class="sub">Sortino 0.99</div></div>
+        <div class="metric"><div class="label">Trades</div><div class="value">15</div><div class="sub">80% won</div></div></div></section>
+
+    <section><h2 class="section-title">Messages</h2>
+      <div class="card" style="display:grid;gap:var(--s-3)"><p class="error">An error: something stopped the action.</p><p class="callout" style="margin:0">A caution: worth knowing before going on.</p>
+        <div class="rules-check ok"><strong>Understood</strong> · Buys SPY when the 50-day SMA crosses above the 200-day SMA.</div>
+        <ul class="findings"><li class="warn"><span><b>A finding that needs attention</b>One sentence with the number behind it.</span></li><li class="good"><span><b>A finding that is fine</b>One sentence with the number behind it.</span></li><li><span><b>A neutral finding</b>Context, neither good nor bad.</span></li></ul></div></section>
+
+    <section><h2 class="section-title">Table</h2>
+      <div class="card"><div class="table-wrap"><table><thead><tr><th>Holding</th><th class="num">Share</th><th class="num">Return</th></tr></thead><tbody><tr><td><strong>SPY</strong> <span class="note">S&amp;P 500 ETF</span></td><td class="num">60.0%</td><td class="num pos">+12.4%</td></tr><tr><td><strong>TLT</strong> <span class="note">Treasury ETF</span></td><td class="num">40.0%</td><td class="num neg">-3.1%</td></tr></tbody></table></div></div></section>
+  </main>
+  <script type="module">
+    const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const ROLES = [["bg", "Page"], ["surface", "Cards"], ["raised", "Wells, inputs"], ["line", "Borders"], ["ink", "Headings"], ["text", "Body text"], ["quiet", "Secondary text"], ["tint", "Actions"], ["tint-soft", "Tinted fill"], ["up", "Gains"], ["down", "Losses, errors"], ["warn", "Cautions"]];
+    function draw() {
+      const sw = ([k, use]) => `<div class="sw"><i style="background:var(--${k})"></i><span><b>--${k}</b>${use ? `${use} · ` : ""}${css(`--${k}`)}</span></div>`;
+      document.querySelector("#colors").innerHTML = ROLES.map(sw).join("");
+      document.querySelector("#series").innerHTML = [1, 2, 3, 4, 5, 6].map((n) => sw([`c${n}`, ""])).join("");
+      document.querySelector("#type").innerHTML = [[8, "Page title", 800], [7, "Score word", 800], [6, "Strategy name, big numbers", 750], [5, "Composer text", 400], [4, "Body", 400], [3, "Buttons, tables", 400], [2, "Notes", 400], [1, "Labels, captions", 600]]
+        .map(([n, use, w]) => `<div><code>--fs-${n} · ${css(`--fs-${n}`).replace(/clamp\((.*)\)/, "28–40px")}</code><span style="font-size:var(--fs-${n});font-weight:${w};color:var(--ink)">${use}</span></div>`).join("");
+      document.querySelector("#space").innerHTML = [1, 2, 3, 4, 5, 6, 8, 10].map((n) => `<div><code style="width:150px">--s-${n} · ${css(`--s-${n}`)}</code><i style="width:var(--s-${n})"></i></div>`).join("");
+      document.querySelector("#radii").innerHTML = ["s", "m", "l", "xl", "full"].map((n) => `<div style="border-radius:var(--r-${n})">--r-${n}</div>`).join("");
+    }
+    for (const [id, key] of [["#theme-pick", "theme"], ["#mode-pick", "mode"]]) {
+      const el = document.querySelector(id);
+      el.value = window.BallastTheme.get()[key];
+      el.addEventListener("change", () => { window.BallastTheme.set({ [key]: el.value }); draw(); });
+    }
+    draw();
+  </script>
+</body>
+</html>
