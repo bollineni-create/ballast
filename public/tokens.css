@@ -36,8 +36,8 @@
   --t-fast: .15s;
   --t-base: .25s;
   --t-slow: .8s;
-  --brand-wash: #0A2826;
-  --brand-tint: #2DD4BF;
+  --brand-wash: #0B1220;
+  --brand-tint: #7AA2FF;
   --side: max(20px, env(safe-area-inset-left), env(safe-area-inset-right));
   --page: 1320px;
 }
