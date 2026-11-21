@@ -44,7 +44,7 @@
             <button class="btn primary" type="submit" id="chat-send">Build</button>
           </div>
           <div class="composer-row">
-            <label class="check" title="Change the strategy below instead of starting a new one"><input type="checkbox" id="chat-refine" /> Change the current strategy</label>
+            <label class="check" title="Change the strategy below instead of starting a new one"><input type="checkbox" id="chat-refine" /> Edit the strategy below instead of starting over</label>
 
           </div>
         </form>
@@ -68,6 +68,7 @@
             <button class="btn" id="save-strategy" type="button">Save</button>
             <button class="btn" id="deploy-strategy" type="button" title="Run these rules on live prices with pretend money">Paper trade</button>
             <button class="btn" id="share-strategy" type="button" title="Copy a link that opens this strategy">Share</button>
+            <button class="btn" id="compare-strategy" type="button" title="Put a copy of these rules in your Compare lineup, so you can tweak them and compare versions">Compare</button>
           </div>
 
           <details class="settings" id="settings">
@@ -198,15 +199,44 @@
     <!-- ============ COMPARE ============ -->
     <section id="view-compare" class="view">
       <div class="view-head">
-        <div><h1>Compare</h1><p class="lede">Run several strategies over the same years and see them side by side.</p></div>
-        <div class="row wrap"><button class="btn primary" type="button" id="compare-run">Compare selected</button></div>
+        <div><h1>Compare</h1><p class="lede">Line up to six strategies, your own or from the Library, and test them over the same years.</p></div>
       </div>
-      <div class="card">
-        <p class="note" id="compare-hint">Pick up to six. They use the test settings from the Studio.</p>
-        <div id="compare-picks" class="picks"></div>
+      <div class="compare-layout">
+        <section class="card lineup-card" aria-labelledby="lineup-title">
+          <div class="card-head"><h3 id="lineup-title">Your lineup</h3><span class="count" id="compare-count"></span></div>
+          <ol id="compare-lineup" class="lineup"></ol>
+          <button class="btn primary wide" type="button" id="compare-run" disabled>Compare</button>
+          <p class="note" id="compare-hint"></p>
+        </section>
+        <section class="card add-card" aria-labelledby="add-title">
+          <h3 id="add-title">Add a strategy</h3>
+          <div class="tabs" id="add-tabs" role="tablist">
+            <button type="button" data-add="write" class="active">Write your own</button>
+            <button type="button" data-add="library">Library</button>
+            <button type="button" data-add="saved">Saved</button>
+          </div>
+          <form class="panel active" data-add-panel="write" id="custom-form" autocomplete="off">
+            <label class="field">Describe it in plain English
+              <textarea id="custom-rules" rows="3" spellcheck="false" placeholder="Buy QQQ when RSI(2) is below 10, sell when it's above 70, 5% stop loss"></textarea>
+            </label>
+            <p class="rules-check" id="custom-check" hidden></p>
+            <label class="field"><span>Name <span class="optional">(optional)</span></span>
+              <input id="custom-name" maxlength="60" placeholder="Named for you if left empty" />
+            </label>
+            <div class="row wrap">
+              <button class="btn" type="submit" id="custom-add">Add to lineup</button>
+              <button class="link" type="button" id="custom-cancel" hidden>Cancel</button>
+            </div>
+            <p class="try">Try <button type="button" class="link" data-try="Hold 100% QQQ">Hold QQQ</button><button type="button" class="link" data-try="Hold SPY when it's above its 200 day average, otherwise bonds">SPY with a trend filter</button><button type="button" class="link" data-try="70/30 stocks and bonds, rebalanced yearly">70/30</button><button type="button" class="link" data-try="Each month hold the top 1 of SPY, QQQ, GLD and TLT by 3-month momentum">Momentum</button></p>
+          </form>
+          <div class="panel" data-add-panel="library"><div id="add-library" class="add-list"></div></div>
+          <div class="panel" data-add-panel="saved"><div id="add-saved" class="add-list"></div></div>
+        </section>
       </div>
       <p id="compare-error" class="error" hidden></p>
       <div id="compare-out" hidden>
+        <p class="callout" id="compare-stale" hidden>Your lineup changed since this run. Compare again to update it.</p>
+        <section class="card verdict" id="compare-verdict"></section>
         <div class="card chart-card">
           <div class="chart-head"><h3>Growth of 100</h3><div class="legend" id="compare-legend"></div></div>
           <canvas id="compare-chart" class="chart tall"></canvas>
@@ -273,12 +303,12 @@
         <div class="card">
           <h3>Rules</h3>
           <div class="fields">
-            <label class="field">Cash<input id="rb-cash" type="number" min="0" step="any" /></label>
-            <label class="field" title="Rebalance when a holding is this many percentage points from its target">Band (± points)<input id="rb-band" type="number" min="0" step="0.5" /></label>
+            <label class="field">Cash ($)<input id="rb-cash" type="number" min="0" step="any" /></label>
+            <label class="field" title="Rebalance when a holding is this many percentage points from its target">Rebalance when off by (± points)<input id="rb-band" type="number" min="0" step="0.5" /></label>
             <label class="field">Smallest trade ($)<input id="rb-min" type="number" min="0" step="1" /></label>
             <label class="field">Cash to keep (%)<input id="rb-buffer" type="number" min="0" max="50" step="0.5" /></label>
             <label class="check wide"><input type="checkbox" id="rb-fractional" /> Allow fractional shares</label>
-            <label class="check wide"><input type="checkbox" id="rb-force" /> Show trades even when inside the band</label>
+            <label class="check wide"><input type="checkbox" id="rb-force" /> Show trades even when everything is close to target</label>
           </div>
         </div>
       </div>
