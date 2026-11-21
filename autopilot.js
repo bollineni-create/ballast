@@ -207,7 +207,8 @@ export async function runOnce({ force = false, reason = "schedule" } = {}) {
     const targetBy = Object.fromEntries(cfg.targets.map((t) => [t.symbol, t.target]));
     const holdings = symbols.map((s) => ({ symbol: s, shares: Number(posBy[s]?.qty || 0), target: targetBy[s] ?? 0 }));
     const cash = Number(account.cash);
-    const a = analyze(holdings, prices, cash);
+    // Same drift the Portfolio page shows: targets apply to what's left after the cash kept aside.
+    const a = analyze(holdings, prices, cash, cfg.cashBuffer);
 
     if (!cfg.startedAt) saveConfig({ startedAt: date, startEquity: Math.round(a.total * 100) / 100 });
 

@@ -81,14 +81,15 @@ async function analyze() {
     const needPrice = positions.filter((p) => p.weight == null).map((p) => p.symbol); // values too, so they can become share counts
     const prices = {};
     if (needPrice.length) {
-      Object.assign(prices, (await quotesInBase(needPrice)).prices); // one currency, so holdings can be added up
+      Object.assign(prices, (await quotesInBase(needPrice, "USD")).prices); // one currency, so holdings can be added up
     }
     const w = toWeights({ positions, cash, cashWeight }, prices);
     if (w.missing.length) throw new Error(`Couldn't get a price for ${w.missing.join(", ")}. Check the symbol, or give that holding as a dollar amount.`);
     const syms = Object.keys(w.weights);
     status(`Loading history for ${syms.join(", ")}…`);
     const spec = { kind: "allocate", symbols: syms, weights: w.weights, rotate: null, rebalance: "yearly", band: null, riskOff: null };
-    const data = await loadBars(spec, syms[0], { ...settings, years: "max", benchmark: "", source: "live" });
+    // Always in dollars, whatever the Studio is set to: the amounts typed here are dollars.
+    const data = await loadBars(spec, syms[0], { ...settings, years: "max", benchmark: "", source: "live", currency: "USD" });
     if (mine !== seq) return;
     // Cash in dollars, whether it was typed as dollars or as a share of the whole.
     const cashAmount = cash || (w.total ? w.cashWeight * w.total : 0);

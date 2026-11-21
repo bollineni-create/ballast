@@ -330,6 +330,7 @@ test("goals and cash are read without confusing them with holdings", () => {
   assert.equal(g("$5,000 in a 10-year treasury fund, held 5 years, 1 year return was good").years, undefined);
   assert.equal(g("50 AAPL, 3k cash. 20 years, $500 a month").years, 20);
   assert.equal(g("15 years to go").years, 15);
+  assert.equal(g("aggressive, 20-year horizon").years, 20);
   // percent cash next to share counts, and the reverse
   const w = toWeights(parseHoldings("50 AAPL, 10% cash"), { AAPL: 180 });
   close(w.total, 10000); close(w.cashWeight, 0.1); close(w.weights.AAPL, 0.9);

@@ -15,7 +15,7 @@ async function refreshPrices() {
   if (!symbols.length) return render();
   try {
     // In one currency, so foreign holdings add up correctly with the rest.
-    const q = await quotesInBase(symbols);
+    const q = await quotesInBase(symbols, "USD"); // cash and every figure here are dollars
     for (const s of symbols) {
       if (q.prices[s] != null) { prices[s] = q.prices[s]; delete errors[s]; } else errors[s] = q.errors[s] || "No quote";
     }

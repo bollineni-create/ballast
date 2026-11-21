@@ -54,7 +54,7 @@ export function parseGoals(text) {
   let m;
   const t = text.replace(/,(?=\d{3})/g, "");
   if ((m = t.match(/\b(?:in|over|for|within|next)\s+(?:the\s+next\s+)?(\d{1,2})\s*(?:\+\s*)?(?:years?|yrs?)\b/i)) // a bare "20 years" counts only when it stands alone or points forward, not "10-year treasury" or "held 5 years"
-    || (m = t.match(/(?<!\b(?:held|owned|had|past|last|for)\s)(?<![-\d])\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)(?=\s*(?:[,.;!]|$|\n|to go\b|left\b|away\b|from now\b|out\b|until\b|till\b|before\b|horizon\b))/i))) g.years = Number(m[1]);
+    || (m = t.match(/(?<!\b(?:held|owned|had|past|last|for)\s)(?<![-\d])\b(\d{1,2})\s*\+?[- ]?\s*(?:years?|yrs?)(?=\s*(?:[,.;!]|$|\n|to go\b|left\b|away\b|from now\b|out\b|until\b|till\b|before\b|horizon\b))/i))) g.years = Number(m[1]);
   if ((m = t.match(new RegExp(String.raw`\$?\s*${NUM}\s*(?:dollars\s*)?(?:a|per|each|every|\/)\s*(month|mo|year|yr)\b`, "i")))) g.monthly = Math.round(amount(m[1], m[2]) / (/^y/i.test(m[3]) ? 12 : 1));
   // The target is the first amount of $1,000 or more after a goal verb that isn't a holding
   // ("want $5,000 in VTI") or a monthly amount ("want to add $2,000 a month").
